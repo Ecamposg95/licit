@@ -1,5 +1,6 @@
 """Licit — demo comercial de licitaciones públicas (white label · Dipromedic · Demo)."""
 import os
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -7,10 +8,21 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 import app.models  # noqa: F401  registra todas las tablas en Base.metadata
-from app.core import errors
-from app.routers import auth, opportunities, resources
+from app.core import config, errors
+from app.routers import auth, jobs as jobs_router, opportunities, resources
+from app.services import jobs
 
-app = FastAPI(title="Licit · Dipromedic Demo API", version="1.0.0")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    # El worker de trabajos corre en un hilo de este proceso; JOBS_WORKER=0 lo apaga (pruebas).
+    if config.JOBS_WORKER:
+        jobs.start_worker()
+    yield
+    jobs.stop_worker()
+
+
+app = FastAPI(title="Licit · Dipromedic Demo API", version="1.0.0", lifespan=lifespan)
 
 _cors = [o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",") if o.strip()]
 app.add_middleware(
@@ -26,6 +38,7 @@ errors.install(app)
 app.include_router(auth.router)
 app.include_router(opportunities.router)
 app.include_router(resources.router)
+app.include_router(jobs_router.router)
 
 
 @app.get("/health", include_in_schema=False)

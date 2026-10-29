@@ -23,6 +23,13 @@ DISPLAY_TIMEZONE = os.getenv("DISPLAY_TIMEZONE", "America/Mexico_City")
 
 ORGANIZATION_NAME = os.getenv("ORGANIZATION_NAME", "Dipromedic · Demo")
 
+# Worker de trabajos en un hilo del servicio web. Las pruebas lo apagan (JOBS_WORKER=0).
+JOBS_WORKER = _bool("JOBS_WORKER", True)
+# Importar el catálogo público de Dipromedic en el bootstrap (frente B). Las pruebas lo apagan.
+IMPORT_CATALOG = _bool("IMPORT_CATALOG", True)
+# Raíz del almacenamiento local de archivos cuando no hay bucket (OBJECT_STORAGE_BUCKET).
+STORAGE_DIR = os.getenv("STORAGE_DIR", "./.storage")
+
 # Contraseña de los usuarios demo (@dipromedic.example). Si no se define, no se crean.
 DEMO_USER_PASSWORD = os.getenv("DEMO_USER_PASSWORD")
 ADMIN_EMAIL = os.getenv("ADMIN_EMAIL")
