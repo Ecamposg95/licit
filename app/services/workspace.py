@@ -117,6 +117,7 @@ def assess(db: Session, user, opportunity: Opportunity) -> Affinity:
     """
     _require(user, Perm.OPPORTUNITY_WRITE, Perm.REQUIREMENT_REVIEW)
     ws = get_or_create_workspace(db, opportunity)
+    lock_workspace(db, ws)
     reqs = _requirements(db, opportunity.id)
     db.execute(delete(MatchAssessment).where(MatchAssessment.opportunity_id == opportunity.id)
                .execution_options(synchronize_session=False))
