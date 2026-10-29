@@ -43,6 +43,27 @@ docker compose up -d                           # postgres:17 local
 arranque; con `IMPORT_CATALOG=0` se omite. `JOBS_WORKER=1` corre el worker de la búsqueda en vivo dentro del servicio web.
 Usuarios demo (`@dipromedic.example`): direccion, analista1..3, revisor, responsable, ti y presentador (todos los roles).
 
+## Módulos de la demo de reunión (plan `docs/superpowers/plans/2026-10-29-demo-reunion-dipromedic.md`)
+- **Fuentes y búsqueda:** `app/sources/sidof.py` (adaptador SIDOF), `app/core/netguard.py` (SSRF), `app/services/search_runs.py`
+  (corridas, deduplicación, evidencia y cambio de bases), `app/routers/search.py`; radar en `frontend/src/pages/radar/*`.
+- **Catálogo y documentos:** `app/services/catalog_import.py`, `catalog_documents.py`, `uploads.py`, `storage.py` (S3 o disco),
+  `app/routers/{catalog,documents}.py`.
+- **Expediente:** `app/services/matching.py` (motor determinista), `affinity.py`, `review.py` (evidencia, revisión, tareas),
+  `workspace.py` (único get-or-create del expediente, decisión, aprobaciones segregadas, compuerta), `app/routers/workspaces.py`;
+  interfaz en `frontend/src/pages/opportunity/*`.
+- **Borradores:** `app/services/generation/*` (instantánea, seis DOCX, ZIP con manifiesto) y `app/routers/artifacts.py`.
+- **Gobierno y vistas:** `app/routers/governance.py` (integridad, permisos, aprobaciones, panel, `/ops/status`),
+  `app/services/dashboard.py`; páginas `Panel`, `Gobierno`, `TI` y `components/AccountSwitcher.tsx`.
+- Trabajos asíncronos: `app/services/jobs.py` (cola en Postgres; `JOBS_WORKER=1` la atiende dentro del servicio web).
+- Etiquetas en español de la interfaz: `frontend/src/lib/labels.ts` (resultados del motor, fases, decisiones, acciones de bitácora).
+- Casos negativos del pack §16: `tests/test_negative.py`. Guion de la reunión: `docs/GUION_DEMO.md`.
+
+```bash
+.venv/bin/python scripts/bootstrap.py --reset                    # reinicio del demo (o Operación → «Reiniciar demo», o POST /api/v1/demo/reset)
+.venv/bin/python scripts/ingest_catalog_documents.py --fetch     # ingesta de PDFs del catálogo (>25 MB solo enlace)
+JOBS_WORKER=1 IMPORT_CATALOG=1 .venv/bin/uvicorn app.main:app    # servidor con worker (búsqueda en vivo y borradores)
+```
+
 ## Deploy (Railway)
 Proyecto `licit-dipromedic` (workspace Atlas Tech) · servicios `web` + `Postgres` · https://web-production-9afcc.up.railway.app
 El contenedor corre `alembic upgrade head && python scripts/bootstrap.py && uvicorn …`.
