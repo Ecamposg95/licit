@@ -66,5 +66,5 @@ class ProcedureParsed:
     buying_unit: str | None = None
     procedure_type: str | None = None    # licitacion_publica | invitacion_3 | adjudicacion_directa
     character: str | None = None         # nacional | internacional_tlc | internacional_abierta
-    notice: str = "convocatoria"         # convocatoria | fallo | aviso
+    notice: str = "convocatoria"         # convocatoria | fallo | cancelacion | modificacion | aviso
     expediente: str | None = None        # código de expediente de Compras MX, si la nota lo trae

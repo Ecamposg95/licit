@@ -190,7 +190,7 @@ def test_multi_procedure_note_keeps_only_matching_objects(db):
     run = launch(db, FakeSidof(pages={"osteosintesis": search_page("5800141")}, notes=all_notes()),
                  ["osteosintesis"])
     assert run.counts["new"] == 1 and run.counts["procedures"] == 1
-    assert run.counts["by_term"][0]["discarded"] == 14     # los otros 14 procedimientos no son del objeto
+    assert run.counts["by_term"][0]["discarded_object"] == 14     # los otros 14 no son del objeto
     assert opp(db, T111).data_kind == "REAL"
     assert opp(db, "LA-50-GYR-050GYR028-N-103-2026") is None
 
@@ -235,7 +235,9 @@ def test_fallo_without_convocatoria_is_not_an_opportunity(db):
     run = launch(db, FakeSidof(pages={"osteosintesis": search_page("5799326")}, notes=all_notes()),
                  ["osteosintesis"])
     assert opp(db, T82) is None
-    assert run.counts["new"] == 0 and run.counts["by_term"][0]["discarded"] == 2
+    term = run.counts["by_term"][0]
+    assert run.counts["new"] == 0
+    assert term["fallo_without_convocatoria"] == 1 and term["discarded_object"] == 1      # T-82 y el tóner
 
 
 def test_fallo_note_closes_existing_opportunity(db):
@@ -258,14 +260,160 @@ def test_fallo_note_closes_existing_opportunity(db):
 
 
 def test_note_failures_are_reported_and_abort_after_three(db):
+    """El caso de la corrida real (79 × HTTP 406): ninguna nota se pudo leer → la corrida falló."""
     flaky = SourceUnavailable("dof_sidof", "HTTP 503 tras 3 intentos", retryable=True)
     cods = ["5801639", "5797331", "5800141", "5800121"]
     fake = FakeSidof(pages={"osteosintesis": search_page(*cods)}, notes={c: flaky for c in cods})
     run = launch(db, fake, ["osteosintesis"])
     assert len(fake.fetched) == 3                           # la cuarta ya no se pide
-    assert run.status == "partial"
+    assert run.status == "failed"
     assert [e["code"] for e in run.errors] == ["source_unavailable"] * 3 + ["aborted"]
-    assert run.counts["new"] == 0
+    assert run.counts["new"] == 0 and run.counts["notes"] == 0
+    term = run.counts["by_term"][0]
+    assert term["status"] == "incompleto" and term["read"] == 0 and term["notes"] == 4
+    assert sidof(db).status == "inaccesible"
+
+
+def test_some_reads_then_abort_is_partial_and_source_not_active(db):
+    flaky = SourceUnavailable("dof_sidof", "HTTP 503 tras 3 intentos", retryable=True)
+    # Orden de lectura: de la más antigua a la más reciente (5797331, 5800121, 5800141, 5801639, …).
+    notes = {"5797331": note("5797331"), "5800121": flaky, "5800141": flaky, "5801639": flaky}
+    fake = FakeSidof(pages={"osteosintesis": search_page("5797331", "5800121", "5800141", "5801639", "5799326")},
+                     notes=notes)
+    run = launch(db, fake, ["osteosintesis"])
+    assert run.status == "partial"
+    assert run.counts["notes"] == 1 and run.errors[-1]["code"] == "aborted"
+    term = run.counts["by_term"][0]
+    assert term["status"] == "incompleto" and term["read"] == 1 and term["notes"] == 5
+    assert sidof(db).status == "inaccesible"                # nunca «activa» después de un corte
+
+
+def test_status_of_terms_through_the_api(db, client):
+    """Comprobación independiente de la UI: lo que la API entrega para pintar las líneas."""
+    flaky = SourceUnavailable("dof_sidof", "HTTP 406", retryable=False)
+    cods = ["5801639", "5797331", "5800141"]
+    run = launch(db, FakeSidof(pages={"osteosintesis": search_page(*cods)}, notes={c: flaky for c in cods}),
+                 ["osteosintesis"])
+    headers = login(client, "analista1@dipromedic.example")
+    body = client.get(f"/api/v1/search-runs/{run.id}", headers=headers).json()
+    assert body["status"] == "failed"
+    assert body["terms"][0]["status"] == "incompleto"
+    assert {e["code"] for e in body["errors"]} == {"source_unavailable", "aborted"}
+
+
+def test_later_page_failure_leaves_term_incomplete(db):
+    from app.sources.base import NoteHit
+    full = [NoteHit(cod_nota=str(7000000 + i), title="X", published_on=date(2026, 1, 1), organism="PODER EJECUTIVO",
+                    url=f"https://sidof.segob.gob.mx/notas/docFuente/{7000000 + i}") for i in range(100)]
+
+    class PagedFake(FakeSidof):
+        def search(self, term, date_from, date_to, start=0, length=100, **kw):
+            if start:
+                raise SourceUnavailable("dof_sidof", "HTTP 503 tras 3 intentos", retryable=True)
+            return SearchPage(hits=full, total=250, confirmed=True)
+
+    run = launch(db, PagedFake(), ["osteosintesis"])
+    term = run.counts["by_term"][0]
+    assert term["status"] == "incompleto" and term["errors"] == 1
+    assert run.status == "partial" and run.errors[0]["code"] == "source_unavailable"
+
+
+def test_note_without_procedure_number_is_counted_and_listed(db):
+    blank = note("5801639")
+    blank.cod_nota, blank.url = "5801639", "https://sidof.segob.gob.mx/notas/docFuente/5801639"
+    blank.html = "<p>MATERIAL DE OSTEOSINTESIS sin tabla ni número de licitación</p>"
+    run = launch(db, FakeSidof(pages={"osteosintesis": search_page("5801639", "5797331")},
+                               notes={"5801639": blank, "5797331": note("5797331")}), ["osteosintesis"])
+    term = run.counts["by_term"][0]
+    assert term["unparsed"] == 1 and term["read"] == 2
+    warning = next(e for e in run.errors if e["code"] == "no_procedure")
+    assert warning["term"] == "osteosintesis"
+    assert warning["notes"] == [{"cod_nota": "5801639", "url": "https://sidof.segob.gob.mx/notas/docFuente/5801639"}]
+    assert "5801639" in warning["message"]
+    assert run.status == "partial"
+
+
+def _synthetic_note(cod: str, html: str):
+    n = note("5801639")
+    n.cod_nota, n.url, n.html = cod, f"https://sidof.segob.gob.mx/notas/docFuente/{cod}", html
+    n.sha256 = __import__("hashlib").sha256(html.encode()).hexdigest()
+    return n
+
+
+def test_families_come_from_each_procedure_text(db):
+    table = ('<table><tr><td>No. Licitación</td><td>{n}</td></tr>'
+             '<tr><td>Descripción de la licitación</td><td>{t}</td></tr>'
+             '<tr><td>Presentación y apertura de proposiciones</td><td>01/12/2026 10:00 horas</td></tr></table>')
+    html = ('<p align="center">INSTITUTO MEXICANO DEL SEGURO SOCIAL</p>'
+            + table.format(n="LA-50-GYR-050GYR001-T-1-2026", t="MATERIAL DE OSTEOSINTESIS")
+            + table.format(n="LA-50-GYR-050GYR001-T-2-2026", t="ENDOPROTESIS DE CADERA"))
+    hit = search_page("5801639").hits[0]
+    page = SearchPage(hits=[hit], total=1, confirmed=True)
+    launch(db, FakeSidof(pages={"osteosintesis": page, "endoprotesis": page},
+                         notes={"5801639": _synthetic_note("5801639", html)}), ["osteosintesis", "endoprotesis"])
+    assert opp(db, "LA-50-GYR-050GYR001-T-1-2026").families == ["Osteosíntesis"]
+    assert opp(db, "LA-50-GYR-050GYR001-T-2-2026").families == ["Endoprótesis"]
+
+
+def _cancellation_html(number: str) -> str:
+    return ('<p align="center">INSTITUTO MEXICANO DEL SEGURO SOCIAL</p>'
+            '<p align="center">AVISO DE CANCELACION DE LICITACION PUBLICA</p>'
+            f'<table><tr><td>No. Licitación</td><td>{number}</td></tr>'
+            '<tr><td>Descripción de la licitación</td><td>MATERIAL DE OSTEOSINTESIS</td></tr>'
+            '<tr><td>Presentación y apertura de proposiciones</td><td>15/12/2026 10:00 horas</td></tr></table>')
+
+
+def test_cancellation_never_creates_and_only_annotates_existing(db):
+    page = SearchPage(hits=[search_page("5801639").hits[0]], total=1, confirmed=True)
+    run = launch(db, FakeSidof(pages={"osteosintesis": page},
+                               notes={"5801639": _synthetic_note("5801639", _cancellation_html(T82))}),
+                 ["osteosintesis"])
+    assert opp(db, T82) is None                              # ni con fecha futura se crea
+    assert run.counts["by_term"][0]["other_notice_without_convocatoria"] == 1
+
+    user = analyst(db)
+    conv = ProcedureParsed(
+        external_id=T82, buyer="IMSS", title="MATERIAL DE OSTEOSINTESIS", state=None, volume=None,
+        published_at=None, questions_at=None, submission_at=None, ruling_at=None,
+        submission_precision="datetime", timezone_assumed=False, excerpt=T82)
+    other = note("5797331")
+    other.url = "https://sidof.segob.gob.mx/notas/docFuente/2"
+    upsert_procedure(db, user.organization_id, conv, other, None, actor_id=user.id)
+    db.commit()
+    launch(db, FakeSidof(pages={"osteosintesis": page},
+                         notes={"5801639": _synthetic_note("5801639", _cancellation_html(T82))}), ["osteosintesis"])
+    existing = opp(db, T82)
+    assert existing.reported_status == "aviso de cancelación publicado"
+    assert existing.result == "desconocido"                  # no se infiere «cancelado»
+    assert existing.submission_at is None                    # la fecha del aviso no se copia
+    assert evidence_count(db, existing) == 2
+
+
+def test_human_typed_date_never_promotes_to_verificada(db):
+    user = analyst(db)
+    source = db.scalars(select(Source).where(Source.key == "comprasmx")).one()
+    manual = Opportunity(organization_id=user.organization_id, external_id=T104,
+                         normalized_id=normalize_external_id(T104), title="Captura", buyer="IMSS",
+                         families=[], data_kind="REAL", source_id=source.id, verification_status="por_verificar",
+                         submission_at=datetime(2026, 12, 1, 16, 0, tzinfo=timezone.utc))
+    db.add(manual)
+    db.commit()
+    no_date = ProcedureParsed(
+        external_id=T104, buyer="IMSS", title="MATERIAL DE OSTEOSINTESIS", state=None, volume=None,
+        published_at=None, questions_at=None, submission_at=None, ruling_at=None,
+        submission_precision="datetime", timezone_assumed=False, excerpt=T104)
+    assert upsert_procedure(db, user.organization_id, no_date, note("5801639"), None, actor_id=user.id) == "updated"
+    db.commit()
+    assert opp(db, T104).verification_status == "por_verificar"      # la fecha la escribió una persona
+    from app.sources.sidof import parse_procedures
+    official = parse_procedures(note("5801639").html)[0]
+    changed = note("5801639")
+    changed.url = "https://sidof.segob.gob.mx/notas/docFuente/3"
+    upsert_procedure(db, user.organization_id, official, changed, None, actor_id=user.id)
+    db.commit()
+    promoted = opp(db, T104)
+    assert promoted.verification_status == "verificada"
+    assert promoted.submission_at.replace(tzinfo=timezone.utc) == datetime(2026, 10, 21, 15, 0, tzinfo=timezone.utc)
 
 
 def test_systematic_http_error_also_aborts(db):
@@ -275,7 +423,8 @@ def test_systematic_http_error_also_aborts(db):
     fake = FakeSidof(pages={"osteosintesis": search_page(*cods)}, notes={c: rejected for c in cods})
     run = launch(db, fake, ["osteosintesis"])
     assert len(fake.fetched) == 3
-    assert run.errors[-1]["code"] == "aborted" and "1 notas quedaron sin leer" in run.errors[-1]["message"]
+    assert run.errors[-1]["code"] == "aborted" and "1 nota quedó sin leer" in run.errors[-1]["message"]
+    assert run.status == "failed" and sidof(db).status == "inaccesible"
 
 
 def test_start_search_is_idempotent_and_audited(db):

@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { CircleAlert, CircleCheck, CircleX, FileUp, LoaderCircle, Plus, RotateCcw, Search, X } from 'lucide-react'
+import { CircleAlert, CircleCheck, CircleX, ExternalLink, FileUp, LoaderCircle, Plus, RotateCcw, Search, X } from 'lucide-react'
 import { ErrorPanel } from '@/components/feedback'
 import { toApiError, type ApiError } from '@/lib/api'
 import {
   DEFAULT_TERMS,
   MAX_TERMS,
+  MIN_SEARCH_DATE,
   getJob,
   getSearchRun,
   newIdempotencyKey,
+  sourceDownMessage,
   startSearch,
   type JobOut,
   type SearchErrorItem,
@@ -50,23 +52,45 @@ interface Props {
 
 type Phase = 'form' | 'starting' | 'running' | 'finished'
 
-function TermLine({ term, searchError, onOpenImport }: { term: SearchTerm; searchError?: SearchErrorItem; onOpenImport: () => void }) {
+function ImportButton({ onOpenImport, label = 'Importar' }: { onOpenImport: () => void; label?: string }) {
+  return (
+    <button type="button" className="btn-secondary shrink-0 px-3 py-1 text-xs" onClick={onOpenImport}>
+      <FileUp aria-hidden="true" className="h-3.5 w-3.5" />
+      {label}
+    </button>
+  )
+}
+
+/** Recuadro con el mensaje literal de fuente caída; rojo si no se obtuvo nada, ámbar si fue parcial. */
+function SourceDown({ detail, severe, onOpenImport }: { detail: string; severe: boolean; onOpenImport: () => void }) {
+  return (
+    <div
+      role="alert"
+      className={`mt-1.5 flex items-start gap-2 rounded-md border px-3 py-2 text-sm ${
+        severe ? 'border-red-200 bg-red-50 text-red-900' : 'border-amber-300 bg-amber-50 text-amber-950'
+      }`}
+    >
+      <p className="min-w-0 flex-1">{sourceDownMessage(detail)}</p>
+      <ImportButton onOpenImport={onOpenImport} />
+    </div>
+  )
+}
+
+const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1)
+
+function TermLine({ term, errors, onOpenImport }: { term: SearchTerm; errors: SearchErrorItem[]; onOpenImport: () => void }) {
   const when = `SIDOF · ${hhmm(term.checked_at)} · «${term.term}»`
+  const unavailable = errors.filter((e) => e.code === 'source_unavailable')
+  const noProcedure = errors.find((e) => e.code === 'no_procedure')
   if (term.status === 'error') {
     return (
       <li className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-red-900">
         <CircleX aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-red-700" />
         <div className="min-w-0 flex-1">
           <p className="font-medium">{when}</p>
-          <p>
-            SIDOF no respondió: {searchError?.message ?? 'sin detalle'}. Esto no significa que no haya licitaciones. Puedes
-            importar manualmente.
-          </p>
+          <p>{sourceDownMessage(unavailable[0]?.message ?? 'sin detalle')}</p>
         </div>
-        <button type="button" className="btn-secondary shrink-0 px-3 py-1 text-xs" onClick={onOpenImport}>
-          <FileUp aria-hidden="true" className="h-3.5 w-3.5" />
-          Importar
-        </button>
+        <ImportButton onOpenImport={onOpenImport} />
       </li>
     )
   }
@@ -91,25 +115,60 @@ function TermLine({ term, searchError, onOpenImport }: { term: SearchTerm; searc
   }
   // «buscado» con notas pendientes también está en curso: la palomita solo aparece al terminar de leerlas.
   const reading = term.status === 'leyendo' || (term.status === 'buscado' && term.read < term.notes)
+  const incomplete = term.status === 'incompleto' || (!reading && unavailable.length > 0)
+  const nothingRead = incomplete && term.read === 0
+  const detail =
+    unavailable.length > 0
+      ? `${unavailable[0].message}${unavailable.length > 1 ? ` y ${unavailable.length - 1} lecturas más fallaron` : ''}`
+      : `${term.notes - term.read} notas quedaron sin leer`
   return (
-    <li className="flex items-start gap-2 px-3 py-2 text-slate-700">
-      {reading ? (
-        <LoaderCircle aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-dpm-blue" />
-      ) : (
-        <CircleCheck aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
-      )}
-      <div>
-        <p className="font-medium text-slate-900">
-          {when} · {term.total ?? 0} notas · {term.new} {term.new === 1 ? 'nueva' : 'nuevas'}
-        </p>
-        <p className="text-xs text-slate-500">
-          {term.notes} de convocatorias por leer ({term.read} leídas)
-          {term.seen_other_term > 0 && ` · ${term.seen_other_term} ya encontradas por otro término`}
-          {term.skipped_non_cv > 0 && ` · ${term.skipped_non_cv} fuera de convocatorias`}
-          {` · ${term.procedures} procedimientos del objeto`}
-          {term.discarded > 0 && ` · ${term.discarded} descartados por objeto`}
-          {term.updated + term.unchanged > 0 && ` · ${term.updated} actualizados, ${term.unchanged} sin cambios`}
-        </p>
+    <li className="px-3 py-2 text-slate-700">
+      <div className="flex items-start gap-2">
+        {reading ? (
+          <LoaderCircle aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-dpm-blue" />
+        ) : incomplete ? (
+          <CircleAlert aria-hidden="true" className={`mt-0.5 h-4 w-4 shrink-0 ${nothingRead ? 'text-red-700' : 'text-amber-700'}`} />
+        ) : (
+          <CircleCheck aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
+        )}
+        <div className="min-w-0 flex-1">
+          <p className="font-medium text-slate-900">
+            {when} · {term.total ?? 0} notas · {term.new} {term.new === 1 ? 'nueva' : 'nuevas'}
+            {incomplete && <span className={nothingRead ? 'text-red-800' : 'text-amber-900'}> · lectura incompleta</span>}
+          </p>
+          <p className="text-xs text-slate-500">
+            {term.notes} de convocatorias por leer ({term.read} leídas)
+            {term.seen_other_term > 0 && ` · ${term.seen_other_term} ya encontradas por otro término`}
+            {term.skipped_non_cv > 0 && ` · ${term.skipped_non_cv} fuera de convocatorias`}
+            {` · ${term.procedures} procedimientos del objeto`}
+            {term.discarded_object > 0 && ` · ${term.discarded_object} descartados por objeto`}
+            {term.fallo_without_convocatoria > 0 &&
+              ` · ${term.fallo_without_convocatoria} ${term.fallo_without_convocatoria === 1 ? 'fallo' : 'fallos'} sin convocatoria registrada`}
+            {term.other_notice_without_convocatoria > 0 &&
+              ` · ${term.other_notice_without_convocatoria} avisos de cancelación o modificación sin convocatoria registrada`}
+            {term.updated + term.unchanged > 0 && ` · ${term.updated} actualizados, ${term.unchanged} sin cambios`}
+          </p>
+          {incomplete && <SourceDown detail={detail} severe={nothingRead} onOpenImport={onOpenImport} />}
+          {noProcedure && (
+            <div className="mt-1.5 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+              <p>
+                {term.unparsed} {term.unparsed === 1 ? 'nota leída no trae' : 'notas leídas no traen'} un número de
+                procedimiento reconocible; ábrelas en la fuente oficial o impórtalas manualmente:
+              </p>
+              <ul className="mt-1 flex flex-wrap gap-x-3 gap-y-1">
+                {(noProcedure.notes ?? []).map((n) => (
+                  <li key={n.cod_nota}>
+                    <a href={n.url} target="_blank" rel="noopener noreferrer" className="link inline-flex items-center gap-1">
+                      Nota {n.cod_nota}
+                      <ExternalLink aria-hidden="true" className="h-3 w-3" />
+                      <span className="sr-only">(se abre en una pestaña nueva)</span>
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
       </div>
     </li>
   )
@@ -117,22 +176,41 @@ function TermLine({ term, searchError, onOpenImport }: { term: SearchTerm; searc
 
 function Summary({ run, job, onOpenImport }: { run: SearchRun; job: JobOut | null; onOpenImport: () => void }) {
   const c = run.counts
+  const unavailable = run.errors.find((e) => e.code === 'source_unavailable')
+  const aborted = run.errors.find((e) => e.code === 'aborted')
+  const sourceDetail = [unavailable?.message, aborted && lowerFirst(aborted.message)].filter(Boolean).join('; ')
+  const tally = `${c.new} ${c.new === 1 ? 'procedimiento nuevo' : 'procedimientos nuevos'}, ${c.updated} actualizados y ${c.unchanged} sin cambios, de ${c.notes} notas leídas`
   if (run.status === 'failed') {
+    const detail = sourceDetail || (job?.status === 'failed' && job.error ? job.error : 'la corrida se detuvo')
     return (
       <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
-        <p className="font-medium">La búsqueda no se completó.</p>
-        <p className="mt-0.5">
-          {job?.status === 'failed' && job.error ? `${job.error}. ` : ''}
-          Esto no significa que no haya licitaciones. Puedes importar manualmente una nota o un procedimiento.
-        </p>
-        <button type="button" className="btn-secondary mt-2 px-3 py-1 text-xs" onClick={onOpenImport}>
-          <FileUp aria-hidden="true" className="h-3.5 w-3.5" />
-          Importar manualmente
-        </button>
+        <p className="font-medium">La búsqueda no se completó: no se obtuvo ningún procedimiento de SIDOF.</p>
+        <div className="mt-1 flex flex-wrap items-start gap-2">
+          <p className="min-w-0 flex-1">{sourceDownMessage(detail)}</p>
+          <ImportButton onOpenImport={onOpenImport} label="Importar manualmente" />
+        </div>
       </div>
     )
   }
-  if (run.status === 'done' && c.new === 0) {
+  if (sourceDetail) {
+    return (
+      <div role="alert" className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+        <p className="font-medium">La búsqueda terminó incompleta: {tally}.</p>
+        <div className="mt-1 flex flex-wrap items-start gap-2">
+          <p className="min-w-0 flex-1">{sourceDownMessage(sourceDetail)}</p>
+          <ImportButton onOpenImport={onOpenImport} label="Importar manualmente" />
+        </div>
+      </div>
+    )
+  }
+  if (run.status === 'partial') {
+    return (
+      <p role="status" className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+        La búsqueda terminó con avisos (ver arriba): {tally}. El radar muestra ahora los datos REAL.
+      </p>
+    )
+  }
+  if (c.new === 0) {
     return (
       <p role="status" className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800">
         La búsqueda terminó sin procedimientos nuevos
@@ -142,9 +220,7 @@ function Summary({ run, job, onOpenImport }: { run: SearchRun; job: JobOut | nul
   }
   return (
     <p role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
-      {run.status === 'partial' ? 'La búsqueda terminó con avisos: ' : 'Búsqueda terminada: '}
-      {c.new} {c.new === 1 ? 'procedimiento nuevo' : 'procedimientos nuevos'}, {c.updated} actualizados y {c.unchanged} sin
-      cambios, de {c.notes} notas leídas. El radar muestra ahora los datos REAL.
+      Búsqueda terminada: {tally}. El radar muestra ahora los datos REAL.
     </p>
   )
 }
@@ -262,17 +338,9 @@ export default function SearchDialog({ open, onClose, onFinished, onOpenImport }
   }
 
   const busy = phase === 'starting' || phase === 'running'
-  const searchErrors = new Map<string, SearchErrorItem>()
-  const usedErrors = new Set<SearchErrorItem>()
-  for (const t of run?.terms ?? []) {
-    const code = t.status === 'error' ? 'source_unavailable' : t.status === 'unconfirmed' ? 'zero_unconfirmed' : null
-    const found = code ? run?.errors.find((x) => x.term === t.term && x.code === code && !usedErrors.has(x)) : undefined
-    if (found) {
-      usedErrors.add(found)
-      if (code === 'source_unavailable') searchErrors.set(t.term, found)
-    }
-  }
-  const otherErrors = (run?.errors ?? []).filter((x) => !usedErrors.has(x))
+  const TERM_CODES = new Set(['source_unavailable', 'zero_unconfirmed', 'no_procedure'])
+  const termErrors = (term: string) => (run?.errors ?? []).filter((x) => x.term === term && TERM_CODES.has(x.code))
+  const otherErrors = (run?.errors ?? []).filter((x) => !(x.term && TERM_CODES.has(x.code)) && x.code !== 'aborted')
   const progress = phase === 'finished' ? 100 : (job?.progress ?? 0)
 
   return (
@@ -374,19 +442,19 @@ export default function SearchDialog({ open, onClose, onFinished, onOpenImport }
                   <label htmlFor="search-from" className="label">
                     Publicadas desde
                   </label>
-                  <input id="search-from" type="date" className="input" value={from} max={to} required
+                  <input id="search-from" type="date" className="input" value={from} min={MIN_SEARCH_DATE} max={to} required
                     onChange={(e) => setFrom(e.target.value)} />
                 </div>
                 <div>
                   <label htmlFor="search-to" className="label">
                     Hasta
                   </label>
-                  <input id="search-to" type="date" className="input" value={to} min={from} max={today} required
+                  <input id="search-to" type="date" className="input" value={to} min={from || MIN_SEARCH_DATE} max={today} required
                     onChange={(e) => setTo(e.target.value)} />
                 </div>
               </div>
               <p className="text-xs text-slate-500">
-                Fechas de publicación en el DOF (máximo un año). Cada nota se lee por separado; un año completo puede tardar
+                Fechas de publicación en el DOF (máximo un año, desde 2021: el robots.txt de SIDOF excluye 2011–2020). Cada nota se lee por separado; un año completo puede tardar
                 unos minutos y se puede cerrar esta ventana mientras tanto.
               </p>
               {error && <ErrorPanel error={error} title="No se pudo iniciar la búsqueda" />}
@@ -416,7 +484,7 @@ export default function SearchDialog({ open, onClose, onFinished, onOpenImport }
               {run && (
                 <ul className="space-y-1 text-sm">
                   {run.terms.map((t) => (
-                    <TermLine key={t.term} term={t} searchError={searchErrors.get(t.term)} onOpenImport={onOpenImport} />
+                    <TermLine key={t.term} term={t} errors={termErrors(t.term)} onOpenImport={onOpenImport} />
                   ))}
                 </ul>
               )}
@@ -450,12 +518,14 @@ export default function SearchDialog({ open, onClose, onFinished, onOpenImport }
             Cerrar
           </button>
           {phase === 'finished' ? (
-            <button type="button" className="btn-primary" onClick={reset}>
+            // `key` distinto: sin él React reutiliza el mismo <button> y, al cambiar a type="submit" durante el
+            // clic, el navegador envía el formulario y relanza la búsqueda con los términos anteriores.
+            <button key="new-search" type="button" className="btn-primary" onClick={reset}>
               <Search aria-hidden="true" className="h-4 w-4" />
               Nueva búsqueda
             </button>
           ) : (
-            <button type="submit" className="btn-primary" disabled={busy || terms.length === 0}>
+            <button key="submit-search" type="submit" className="btn-primary" disabled={busy || terms.length === 0}>
               {busy ? <LoaderCircle aria-hidden="true" className="h-4 w-4 animate-spin" /> : <Search aria-hidden="true" className="h-4 w-4" />}
               {phase === 'starting' ? 'Iniciando…' : phase === 'running' ? 'Buscando…' : 'Buscar en SIDOF'}
             </button>

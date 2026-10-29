@@ -57,8 +57,15 @@ _AUDIT_FIELDS = ["external_id", "title", "buyer", "state", "data_kind", "source_
 _REPORTED = {
     "convocatoria": "Resumen de convocatoria publicado en el DOF",
     "fallo": "Fallo publicado en el DOF",
+    "cancelacion": "aviso de cancelación publicado",
+    "modificacion": "aviso de modificación publicado",
     "aviso": "Aviso publicado en el DOF",
 }
+# Solo una convocatoria (o un aviso sin tipo que trae fecha de presentación) crea una oportunidad nueva. Un fallo,
+# una cancelación o una modificación solo se agregan como evidencia a una oportunidad ya registrada.
+CREATING_NOTICES = {"convocatoria", "aviso"}
+_NOTICE_LABEL = {"fallo": "un aviso de fallo", "cancelacion": "un aviso de cancelación",
+                 "modificacion": "un aviso de modificación o diferimiento"}
 VERIFICATION_SCOPE = "Resumen publicado en el DOF (SIDOF); las bases y la vigencia se confirman en Compras MX."
 
 
@@ -75,10 +82,11 @@ def matches_term(text: str | None, term: str) -> bool:
 
 
 def families_for(text: str | None, terms: Sequence[str] = ()) -> list[str]:
+    """Familias del procedimiento: solo de los términos que aparecen en su propio texto (no en el resto de la nota)."""
     found: list[str] = []
     for term in terms:
         fam = FAMILY_BY_TERM.get(" ".join(_words(term)))
-        if fam and fam not in found:
+        if fam and fam not in found and matches_term(text, term):
             found.append(fam)
     for key, fam in FAMILY_BY_TERM.items():
         if fam not in found and matches_term(text, key):
@@ -131,7 +139,8 @@ def start_search(db: Session, user: User, terms: list[str], date_from: date, dat
 def _empty_term(term: str) -> dict:
     return {"term": term, "status": "pendiente", "checked_at": None, "total": None, "notes": 0, "read": 0,
             "skipped_non_cv": 0, "seen_other_term": 0, "procedures": 0, "new": 0, "updated": 0, "unchanged": 0,
-            "discarded": 0, "errors": 0}
+            "unparsed": 0, "discarded_object": 0, "fallo_without_convocatoria": 0,
+            "other_notice_without_convocatoria": 0, "errors": 0}
 
 
 def _empty_counts(terms: Sequence[str]) -> dict:
@@ -239,23 +248,28 @@ def _apply_update(opp: Opportunity, proc: ProcedureParsed, families: list[str]) 
         opp.reported_status = _REPORTED["fallo"]
         if proc.ruling_at and opp.ruling_at is None:
             opp.ruling_at = proc.ruling_at
-    else:
-        limits = {"title": 500, "buyer": 255, "buying_unit": 255, "state": 100, "procedure_type": 40, "character": 40}
-        for field, limit in limits.items():
-            value = getattr(proc, field)
-            if value:
-                setattr(opp, field, value[:limit])
-        for field in ("questions_at", "ruling_at"):
-            value = getattr(proc, field)
-            if value and _aware(getattr(opp, field)) != value:
-                setattr(opp, field, value)
-        if proc.submission_at and _aware(opp.submission_at) != proc.submission_at:
-            opp.submission_at = proc.submission_at
-            opp.submission_precision = proc.submission_precision
-            opp.timezone_assumed = proc.timezone_assumed
-            opp.source_timezone = "America/Mexico_City"
-        if opp.submission_at is not None and opp.verification_status == "por_verificar":
-            opp.verification_status = "verificada"
+        return
+    if proc.notice in ("cancelacion", "modificacion"):
+        # Solo se anota el aviso: sus fechas pueden ser las del propio aviso y el resultado no se infiere.
+        opp.reported_status = _REPORTED[proc.notice]
+        return
+    limits = {"title": 500, "buyer": 255, "buying_unit": 255, "state": 100, "procedure_type": 40, "character": 40}
+    for field, limit in limits.items():
+        value = getattr(proc, field)
+        if value:
+            setattr(opp, field, value[:limit])
+    for field in ("questions_at", "ruling_at"):
+        value = getattr(proc, field)
+        if value and _aware(getattr(opp, field)) != value:
+            setattr(opp, field, value)
+    if proc.submission_at and _aware(opp.submission_at) != proc.submission_at:
+        opp.submission_at = proc.submission_at
+        opp.submission_precision = proc.submission_precision
+        opp.timezone_assumed = proc.timezone_assumed
+        opp.source_timezone = "America/Mexico_City"
+    # Solo una fecha que trae la nota oficial verifica; la que capturó una persona no.
+    if proc.submission_at is not None and opp.verification_status == "por_verificar":
+        opp.verification_status = "verificada"
     merged = list(opp.families or []) + [f for f in families if f not in (opp.families or [])]
     if merged != list(opp.families or []):
         opp.families = merged
@@ -281,6 +295,11 @@ def upsert_procedure(db: Session, org_id: str, proc: ProcedureParsed, note: Note
                                                Opportunity.normalized_id == nid)
                      .order_by(Opportunity.created_at)).first()
     if opp is None:
+        if proc.notice not in CREATING_NOTICES:
+            raise AppError(422, "notice_not_convocatoria",
+                           f"La nota es {_NOTICE_LABEL.get(proc.notice, 'un aviso')} de {proc.external_id}, no una "
+                           "convocatoria: no se registra como oportunidad nueva. Solo se agrega como evidencia "
+                           "cuando el procedimiento ya está registrado.")
         opp = _new_opportunity(org_id, nid, proc, note, source, families)
         db.add(opp)
         db.flush()
@@ -325,16 +344,27 @@ class _State:
         self.counts = _empty_counts(terms)
         self.errors: list[dict] = []
         self.responded = 0                  # términos cuya búsqueda obtuvo respuesta de SIDOF
+        self.queued = 0                     # notas de convocatorias por leer
 
     def term(self, term: str) -> dict:
         return next(t for t in self.counts["by_term"] if t["term"] == term)
 
-    def error(self, term: str | None, code: str, message: str) -> None:
-        self.errors.append({"source": SOURCE_KEY, "term": term, "code": code, "message": message})
+    def error(self, term: str | None, code: str, message: str, notes: list[dict] | None = None) -> None:
+        item = {"source": SOURCE_KEY, "term": term, "code": code, "message": message}
+        if notes:
+            item["notes"] = notes
+        self.errors.append(item)
 
     def save(self, run: SearchRun) -> None:
         run.counts = copy.deepcopy(self.counts)            # JSON: se reasigna para que se guarde
         run.errors = copy.deepcopy(self.errors)
+
+
+def _term_done_status(t: dict) -> str:
+    """Un término solo está «terminado» si se leyeron todas sus notas; si no, queda «incompleto»."""
+    if t["status"] in ("error", "unconfirmed"):
+        return t["status"]
+    return "incompleto" if t["read"] < t["notes"] or t["errors"] else "terminado"
 
 
 def _is_convocatoria_section(hit: NoteHit) -> bool:
@@ -350,6 +380,7 @@ def _search_term(client, term: str, date_from: date, date_to: date, state: _Stat
         except SourceUnavailable as exc:
             if page_no == 0:
                 raise
+            state.term(term)["errors"] += 1          # resultados incompletos: el término no queda «terminado»
             state.error(term, "source_unavailable",
                         f"SIDOF dejó de responder en la página {page_no + 1} de «{term}»: {exc.reason}. "
                         "Los resultados de este término pueden estar incompletos.")
@@ -357,6 +388,7 @@ def _search_term(client, term: str, date_from: date, date_to: date, state: _Stat
         if not page.confirmed:
             if page_no == 0:
                 return [], None, False
+            state.term(term)["errors"] += 1
             state.error(term, "zero_unconfirmed", f"SIDOF no confirmó la página {page_no + 1} de «{term}»; "
                                                   "los resultados de este término pueden estar incompletos.")
             return hits, None, True
@@ -427,6 +459,7 @@ def _execute(db: Session, job: Job, run: SearchRun, client, state: _State) -> No
                                        f"{MAX_NOTES_PER_RUN}. Acota el rango de fechas o los términos.")
         queue = queue[:MAX_NOTES_PER_RUN]
     failures = 0
+    unparsed: dict[str, list[dict]] = {}
     for i, cod in enumerate(queue):
         term = owner[cod]
         t = state.term(term)
@@ -435,13 +468,14 @@ def _execute(db: Session, job: Job, run: SearchRun, client, state: _State) -> No
             note = client.get_note(cod)
         except SourceUnavailable as exc:
             t["errors"] += 1
-            state.error(term, "source_unavailable", f"No se pudo leer la nota {cod}: {exc.reason}")
+            state.error(term, "source_unavailable", f"no se pudo leer la nota {cod} ({exc.reason})")
             # Tres fallos seguidos, se reintenten o no (un 4xx sistemático también), detienen la lectura.
             failures += 1
             if failures >= ABORT_AFTER_FAILURES:
                 left = len(queue) - i - 1
+                left_text = "1 nota quedó sin leer" if left == 1 else f"{left} notas quedaron sin leer"
                 state.error(None, "aborted", f"Se detuvo la lectura tras {ABORT_AFTER_FAILURES} fallos seguidos de "
-                                             f"SIDOF; {left} notas quedaron sin leer.")
+                                             f"SIDOF; {left_text}.")
                 state.save(run)
                 db.commit()
                 break
@@ -449,11 +483,18 @@ def _execute(db: Session, job: Job, run: SearchRun, client, state: _State) -> No
             failures = 0
             t["read"] += 1
             state.counts["notes"] += 1
-            for proc in parse_procedures(note.html):
-                relevant = any(matches_term(proc.title or proc.excerpt, x) for x in hit_terms[cod])
-                if not relevant or (proc.notice == "fallo"
-                                    and not _opportunity_exists(db, run.organization_id, proc.external_id)):
-                    t["discarded"] += 1
+            procs = parse_procedures(note.html)
+            if not procs:                   # nota sin número reconocible: se cuenta y se lista, no desaparece
+                t["unparsed"] += 1
+                unparsed.setdefault(term, []).append({"cod_nota": cod, "url": note.url})
+            for proc in procs:
+                if not any(matches_term(proc.title or proc.excerpt, x) for x in hit_terms[cod]):
+                    t["discarded_object"] += 1
+                    continue
+                if proc.notice not in CREATING_NOTICES and \
+                        not _opportunity_exists(db, run.organization_id, proc.external_id):
+                    key = "fallo_without_convocatoria" if proc.notice == "fallo" else "other_notice_without_convocatoria"
+                    t[key] += 1
                     continue
                 outcome = upsert_procedure(db, run.organization_id, proc, note, run, terms=hit_terms[cod])
                 state.counts["procedures"] += 1
@@ -463,16 +504,24 @@ def _execute(db: Session, job: Job, run: SearchRun, client, state: _State) -> No
                 state.save(run)
                 db.commit()                 # libera el candado de la bitácora antes de la siguiente petición
         if all(owner[c] != term for c in queue[i + 1:]):
-            t["status"] = "terminado" if t["status"] != "unconfirmed" else t["status"]
+            t["status"] = _term_done_status(t)
         state.save(run)
         jobs.set_progress(db, job, 10 + int(88 * (i + 1) / len(queue)), f"Nota {i + 1} de {len(queue)} · «{term}»")
     for t in state.counts["by_term"]:
-        if t["status"] in ("buscado", "leyendo"):
-            t["status"] = "terminado"
+        if t["status"] in ("buscado", "leyendo", "terminado"):
+            t["status"] = _term_done_status(t)
+    for term, notes in unparsed.items():
+        listed = ", ".join(f"{n['cod_nota']} ({n['url']})" for n in notes)
+        state.error(term, "no_procedure",
+                    f"{len(notes)} {'nota' if len(notes) == 1 else 'notas'} sin número de procedimiento reconocible: "
+                    f"{listed}. Ábrelas en la fuente oficial o impórtalas manualmente.", notes=notes)
+    state.queued = len(queue)
 
 
 def _finish(db: Session, run: SearchRun, state: _State) -> dict:
-    if state.responded == 0:
+    codes = {e["code"] for e in state.errors}
+    # Falla si ninguna búsqueda respondió o si había notas por leer y no se pudo leer ninguna.
+    if state.responded == 0 or (state.queued > 0 and state.counts["notes"] == 0):
         status = SearchRunStatus.FAILED.value
     elif state.errors:
         status = SearchRunStatus.PARTIAL.value
@@ -483,7 +532,8 @@ def _finish(db: Session, run: SearchRun, state: _State) -> dict:
     run.status = status
     run.finished_at = now
     source = _sidof_source(db, run.organization_id)
-    source.status = SourceStatus.INACCESIBLE.value if status == SearchRunStatus.FAILED.value \
+    # Nunca «activa» si la corrida falló o se cortó por fallos seguidos de la fuente.
+    source.status = SourceStatus.INACCESIBLE.value if status == SearchRunStatus.FAILED.value or "aborted" in codes \
         else SourceStatus.ACTIVA.value
     source.last_checked_at = now
     first = state.errors[0] if state.errors else None

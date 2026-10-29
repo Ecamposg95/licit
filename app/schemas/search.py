@@ -6,6 +6,8 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from app.schemas.v1 import UserRef
 
 MAX_RANGE_DAYS = 366
+# El robots.txt de SIDOF prohíbe notas concretas de 2011 a 2020: la búsqueda empieza, como mínimo, en 2021.
+MIN_DATE = date(2021, 1, 1)
 
 
 class SearchRunCreate(BaseModel):
@@ -50,7 +52,7 @@ class SearchCounts(BaseModel):
 
 class SearchTermOut(BaseModel):
     term: str
-    status: str                  # pendiente | buscando | buscado | leyendo | terminado | unconfirmed | error
+    status: str                  # pendiente | buscando | buscado | leyendo | terminado | incompleto | unconfirmed | error
     checked_at: datetime | None = None
     total: int | None = None     # notas que reportó SIDOF (None si no confirmó o falló)
     notes: int = 0               # notas de convocatorias asignadas a este término
@@ -61,15 +63,25 @@ class SearchTermOut(BaseModel):
     new: int = 0
     updated: int = 0
     unchanged: int = 0
-    discarded: int = 0           # procedimientos cuyo objeto no coincide o fallos sin convocatoria registrada
+    unparsed: int = 0            # notas leídas sin ningún número de procedimiento reconocible
+    discarded_object: int = 0    # procedimientos cuyo objeto no menciona el término
+    fallo_without_convocatoria: int = 0          # avisos de fallo de procedimientos no registrados
+    other_notice_without_convocatoria: int = 0   # cancelaciones o modificaciones de procedimientos no registrados
     errors: int = 0
+
+
+class NoteRef(BaseModel):
+    cod_nota: str
+    url: str                     # URL pública de la nota oficial
 
 
 class SearchErrorOut(BaseModel):
     source: str
     term: str | None = None
-    code: str                    # source_unavailable | zero_unconfirmed | aborted | truncated | internal_error
+    # source_unavailable | zero_unconfirmed | aborted | truncated | no_procedure | internal_error
+    code: str
     message: str
+    notes: list[NoteRef] = []    # no_procedure: notas que conviene abrir o importar a mano
 
 
 class SearchQueryOut(BaseModel):

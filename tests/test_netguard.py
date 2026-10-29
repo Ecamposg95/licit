@@ -150,6 +150,21 @@ def test_safe_get_caps_size_and_sends_user_agent(monkeypatch):
     assert exc.value.code == "response_too_large"
 
 
+def test_safe_get_decoding_error_is_502(monkeypatch):
+    use_transport(monkeypatch, lambda r: httpx.Response(200, headers={"Content-Encoding": "gzip"}, content=b"roto"))
+    with pytest.raises(AppError) as exc:
+        netguard.safe_get("https://sidof.segob.gob.mx/ok", SIDOF)
+    assert exc.value.status == 502 and exc.value.code == "source_unavailable"
+
+
+def test_safe_get_bad_redirect_location_is_a_clean_error(monkeypatch):
+    """httpx rechaza la cabecera Location inválida (RemoteProtocolError): error de la fuente, nunca un 500."""
+    use_transport(monkeypatch, lambda r: httpx.Response(302, headers={"Location": "https://[::1"}))
+    with pytest.raises(AppError) as exc:
+        netguard.safe_get("https://sidof.segob.gob.mx/ok", SIDOF)
+    assert (exc.value.status, exc.value.code) == (502, "source_unavailable")
+
+
 def test_safe_get_network_error_is_502(monkeypatch):
     def handler(request):
         raise httpx.ConnectTimeout("sin respuesta", request=request)
@@ -219,6 +234,15 @@ def test_search_run_validation(client, payload):
     headers = login(client, "analista1@dipromedic.example")
     r = client.post("/api/v1/search-runs", json=payload, headers=headers)
     assert r.status_code == 422
+
+
+def test_search_run_rejects_dates_before_2021(client):
+    """El robots.txt de SIDOF prohíbe notas de 2011–2020: la búsqueda empieza el 01-01-2021 como mínimo."""
+    headers = login(client, "analista1@dipromedic.example")
+    r = client.post("/api/v1/search-runs", json={"date_from": "2020-12-31", "date_to": "2021-06-30"}, headers=headers)
+    assert r.status_code == 422 and r.json()["code"] == "date_out_of_range"
+    ok = client.post("/api/v1/search-runs", json={"date_from": "2021-01-01", "date_to": "2021-06-30"}, headers=headers)
+    assert ok.status_code == 202
 
 
 def test_search_run_detail_is_org_scoped(client):
@@ -334,6 +358,17 @@ def test_import_ambiguous_note_asks_which_procedure(client, monkeypatch):
     assert r.status_code == 422 and r.json()["code"] == "procedure_choice_required"
     assert [d["external_id"] for d in r.json()["details"]] == ["LA-50-GYR-050GYR001-T-1-2026",
                                                               "LA-50-GYR-050GYR001-T-2-2026"]
+    with SessionLocal() as db:
+        assert db.scalar(select(func.count()).select_from(Opportunity).where(Opportunity.data_kind == "REAL")) == 0
+
+
+def test_import_fallo_note_is_not_created(client, monkeypatch):
+    use_transport(monkeypatch, sidof_notes_transport({"5799326": (FIX / "nota_5799326.json").read_bytes()}))
+    headers = login(client, "analista1@dipromedic.example")
+    r = client.post("/api/v1/opportunities/import",
+                    json={"url": "https://sidof.segob.gob.mx/notas/docFuente/5799326"}, headers=headers)
+    assert r.status_code == 422 and r.json()["code"] == "notice_not_convocatoria"
+    assert "fallo" in r.json()["message"]
     with SessionLocal() as db:
         assert db.scalar(select(func.count()).select_from(Opportunity).where(Opportunity.data_kind == "REAL")) == 0
 

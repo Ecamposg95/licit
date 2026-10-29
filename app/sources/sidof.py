@@ -200,6 +200,8 @@ class SidofClient:
                 reason = f"tiempo de espera agotado ({type(exc).__name__})"
             except httpx.TransportError as exc:
                 reason = f"error de red ({type(exc).__name__})"
+            except httpx.HTTPError as exc:          # p. ej. DecodingError: cuerpo comprimido corrupto
+                reason = f"respuesta ilegible ({type(exc).__name__})"
             else:
                 if 200 <= status < 300:
                     return body
@@ -231,6 +233,13 @@ class SidofClient:
 # Número de procedimiento de Compras MX: LA-50-GYR-050GYR010-T-104-2026, LA-64-072-905038959-N-57-2026…
 PROCEDURE_RE = re.compile(r"\b(?:L|I|A)[AOS]-\d{2,3}-[0-9A-Z]{2,4}-[0-9A-Z]{4,12}-[A-Z]-\d{1,5}-(?:19|20)\d{2}\b")
 _EXPEDIENTE_RE = re.compile(r"\bE-(?:19|20)\d{2}-\d{6,10}\b")
+# Guiones tipográficos (U+2010–U+2015, U+2212) y espacios duros que esconderían el número a PROCEDURE_RE.
+_MARKS = {**dict.fromkeys(map(ord, "\u2010\u2011\u2012\u2013\u2014\u2015\u2212"), "-"),
+          **dict.fromkeys(map(ord, "\u00a0\u2007\u202f"), " ")}
+
+
+def ascii_marks(text: str) -> str:
+    return text.translate(_MARKS)
 _PROCEDURE_TYPES = {"L": "licitacion_publica", "I": "invitacion_3", "A": "adjudicacion_directa"}
 _CHARACTER_CODES = {"N": "nacional", "T": "internacional_tlc", "I": "internacional_abierta"}
 
@@ -450,6 +459,7 @@ class _Block:
 
 def _table_blocks(rows: list[list[str]]) -> tuple[list[_Block], list[str]]:
     """Procedimientos de una tabla y, si no trae ninguno, sus líneas sueltas (p. ej. la tabla del ganador)."""
+    rows = [[ascii_marks(c) for c in row] for row in rows]
     header = rows[0]
     header_fields = [_field_for(c) for c in header]
     has_numbers = any(PROCEDURE_RE.search(" ".join(r)) for r in rows)
@@ -513,24 +523,43 @@ def _table_blocks(rows: list[list[str]]) -> tuple[list[_Block], list[str]]:
     return blocks, [line for line in loose if line]
 
 
+# Tipo de aviso según el encabezado. Precedencia: cancelación > modificación > fallo > convocatoria > aviso.
+_CANCEL_RE = re.compile(r"\bcancelacion\b|\bse cancela\b|\bcancelad[oa]s?\b")
+_MODIF_RE = re.compile(r"\bdiferimiento\b|\bse difiere\b|\bmodificacion(es)?\b|\breprogramacion\b"
+                       r"|\bnota aclaratoria\b|\bfe de erratas\b|\baclaracion\b")
+# «fallo» solo cuenta con un patrón positivo; «junta, apertura y fallo» de pasada no es un aviso de fallo.
+_FALLO_RE = re.compile(r"\b(publicacion|aviso|notificacion|acta|resultado)\s+(de|del)\s+(los\s+)?fallos?\b"
+                       r"|\bse dan? a conocer (el|los) fallos?\b|^fallos?\s+de\b")
+
+
+def _mostly_upper(text: str) -> bool:
+    letters = [c for c in text if c.isalpha()]
+    return bool(letters) and sum(c.isupper() for c in letters) >= 0.8 * len(letters)
+
+
 def _header(items: list[tuple]) -> tuple[list[str], str]:
     """Líneas centradas del encabezado (convocante y unidad) y el tipo de aviso."""
     lines: list[str] = []
-    notice = "aviso"
+    kinds: set[str] = set()
     for item in items:
         if item[0] == "table":
             break
         _, align, text = item
         n = normalize_text(text)
-        heading = align == "center" or len(n) <= 120      # un párrafo largo puede mencionar «fallo» de pasada
-        if heading and re.search(r"\bfallos?\b", n):
-            notice = "fallo"
-            continue
-        if heading and "convocatoria" in n:
-            notice = "convocatoria" if notice == "aviso" else notice
-            continue
-        if align == "center" and len(text) <= 200:
+        # Solo encabezados: centrados o renglones cortos en mayúsculas (la prosa puede mencionar «fallo»).
+        heading = align == "center" or (len(n) <= 120 and _mostly_upper(text))
+        classified = False
+        if heading:
+            for kind, rx in (("cancelacion", _CANCEL_RE), ("modificacion", _MODIF_RE), ("fallo", _FALLO_RE)):
+                if rx.search(n):
+                    kinds.add(kind)
+                    classified = True
+            if "convocatoria" in n:
+                kinds.add("convocatoria")
+                classified = True
+        if not classified and align == "center" and len(text) <= 200:
             lines.append(text)
+    notice = next((k for k in ("cancelacion", "modificacion", "fallo", "convocatoria") if k in kinds), "aviso")
     return lines, notice
 
 
@@ -607,8 +636,8 @@ def parse_procedures(html: str) -> list[ProcedureParsed]:
             blocks.extend(found)
         elif blocks and loose:              # p. ej. la tabla del ganador que sigue a su procedimiento
             blocks[-1].lines.extend(loose)
-    if any("winner" in b.fields for b in blocks):
-        notice = "fallo"
+    if notice not in ("cancelacion", "modificacion") and any("winner" in b.fields for b in blocks):
+        notice = "fallo"                    # tabla de ganador: aviso de fallo
     elif notice == "aviso" and any("submission" in b.fields for b in blocks):
         notice = "convocatoria"
     merged: dict[str, _Block] = {}

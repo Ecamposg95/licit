@@ -230,6 +230,45 @@ def test_header_variants_seen_in_live_run():
     assert proc.submission_at.astimezone(MX) == datetime(2026, 7, 20, 10, 0, tzinfo=MX)
 
 
+def test_unicode_dashes_and_nbsp_in_number_parse():
+    """Guiones tipográficos (U+2010–U+2015, U+2212) y espacios duros no esconden el número."""
+    html = ('<p align="center">INSTITUTO MEXICANO DEL SEGURO SOCIAL</p>'
+            '<table><tr><td>No.\u00a0Licitación</td><td>LA\u201150\u2011GYR\u2011050GYR010\u2011T\u2011104\u20112026</td></tr>'
+            '<tr><td>Descripción de la licitación</td><td>MATERIAL DE OSTEOSINTESIS</td></tr></table>'
+            '<table><tr><td>No. Licitación</td><td>LA\u221250\u2013GYR\u2014050GYR010\u2012T\u2010105\u20152026</td></tr></table>')
+    assert [p.external_id for p in parse_procedures(html)] == ["LA-50-GYR-050GYR010-T-104-2026",
+                                                                "LA-50-GYR-050GYR010-T-105-2026"]
+
+
+def _notice(heading: str, rows: str = "") -> str:
+    table = rows or ('<tr><td>No. Licitación</td><td>LA-50-GYR-050GYR001-T-9-2026</td></tr>'
+                     '<tr><td>Descripción de la licitación</td><td>MATERIAL DE OSTEOSINTESIS</td></tr>'
+                     '<tr><td>Fecha del fallo</td><td>30 DE NOVIEMBRE DE 2026</td></tr>')
+    return (f'<p align="center">INSTITUTO MEXICANO DEL SEGURO SOCIAL</p><p align="center">{heading}</p>'
+            f'<table>{table}</table>')
+
+
+def test_diferimiento_del_fallo_is_not_a_fallo():
+    proc = parse_procedures(_notice("AVISO DE DIFERIMIENTO DEL FALLO"))[0]
+    assert proc.notice == "modificacion"
+
+
+def test_fallo_needs_a_positive_pattern():
+    assert parse_procedures(_notice("PUBLICACION DE FALLO DE LICITACION PUBLICA"))[0].notice == "fallo"
+    assert parse_procedures(_notice("SE DA A CONOCER EL FALLO DE LA LICITACION"))[0].notice == "fallo"
+    # «fallo» de pasada en un encabezado no basta.
+    assert parse_procedures(_notice("CALENDARIO: JUNTA, APERTURA Y FALLO"))[0].notice != "fallo"
+    assert parse_procedures(_notice("MODIFICACION A LA FECHA DE FALLO"))[0].notice == "modificacion"
+
+
+def test_cancellation_notice_is_classified():
+    proc = parse_procedures(_notice("AVISO DE CANCELACION DE LA LICITACION PUBLICA"))[0]
+    assert proc.notice == "cancelacion"
+    winner = ('<tr><td>No. licitación</td><td>Descripción</td><td>Licitante ganador</td></tr>'
+              '<tr><td>LA-50-GYR-050GYR001-T-9-2026</td><td>OSTEOSINTESIS</td><td>EMPRESA X</td></tr>')
+    assert parse_procedures(_notice("AVISO DE CANCELACION", winner))[0].notice == "cancelacion"
+
+
 def test_get_note_rejects_non_numeric_code():
     with pytest.raises(ValueError):
         make_client(fixture_transport()).get_note("../../etc/passwd")
@@ -307,6 +346,15 @@ def test_http_5xx_is_retried_then_succeeds():
     responses = [httpx.Response(503), httpx.Response(200, content=fixture("nota_5801639.json"))]
     note = make_client(httpx.MockTransport(lambda r: responses.pop(0))).get_note("5801639")
     assert note.cod_nota == "5801639"
+
+
+def test_decoding_error_is_source_unavailable():
+    """Un cuerpo gzip corrupto (httpx.DecodingError) es un fallo de la fuente, no un error interno."""
+    transport = httpx.MockTransport(
+        lambda r: httpx.Response(200, headers={"Content-Encoding": "gzip"}, content=b"esto no es gzip"))
+    with pytest.raises(SourceUnavailable) as exc:
+        make_client(transport).get_note("5801639")
+    assert exc.value.source == "dof_sidof"
 
 
 def test_oversized_response_is_rejected():

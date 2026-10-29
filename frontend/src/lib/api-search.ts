@@ -24,15 +24,36 @@ export interface SearchTerm extends SearchCounts {
   read: number
   skipped_non_cv: number
   seen_other_term: number
-  discarded: number
+  /** Notas leídas sin ningún número de procedimiento reconocible. */
+  unparsed: number
+  /** Procedimientos cuyo objeto no menciona el término. */
+  discarded_object: number
+  fallo_without_convocatoria: number
+  /** Cancelaciones o modificaciones de procedimientos no registrados. */
+  other_notice_without_convocatoria: number
   errors: number
+}
+
+export interface NoteRef {
+  cod_nota: string
+  url: string
 }
 
 export interface SearchErrorItem {
   source: string
   term: string | null
-  code: 'source_unavailable' | 'zero_unconfirmed' | 'aborted' | 'truncated' | 'internal_error' | string
+  code: 'source_unavailable' | 'zero_unconfirmed' | 'aborted' | 'truncated' | 'no_procedure' | 'internal_error' | string
   message: string
+  /** no_procedure: notas que conviene abrir en la fuente oficial o importar a mano. */
+  notes?: NoteRef[]
+}
+
+/** Fecha mínima de búsqueda: el robots.txt de SIDOF prohíbe notas de 2011 a 2020. */
+export const MIN_SEARCH_DATE = '2021-01-01'
+
+/** Mensaje literal cuando SIDOF falla (brief C5): nunca se presenta como «no hay licitaciones». */
+export function sourceDownMessage(detail: string): string {
+  return `SIDOF no respondió: ${detail.replace(/[.\s]+$/, '')}. Esto no significa que no haya licitaciones. Puedes importar manualmente`
 }
 
 export interface SearchRun {

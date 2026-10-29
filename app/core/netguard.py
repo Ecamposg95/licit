@@ -103,13 +103,17 @@ def safe_get(url: str, allowed_domains: list[str], max_bytes: int = 5_000_000, m
             request = http.build_request("GET", current, headers={"User-Agent": USER_AGENT})
             try:
                 response = http.send(request, stream=True, follow_redirects=False)
-            except httpx.TransportError as exc:
+            except httpx.HTTPError as exc:
                 raise AppError(502, "source_unavailable",
                                f"No se pudo descargar de {request.url.host} ({type(exc).__name__})") from None
             try:
                 location = response.headers.get("Location")
                 if response.is_redirect and location:
-                    current = validate_public_url(str(response.url.join(location)), allowed_domains)
+                    try:
+                        target = str(response.url.join(location))
+                    except (httpx.InvalidURL, ValueError):
+                        raise _reject("La redirección apunta a una URL inválida") from None
+                    current = validate_public_url(target, allowed_domains)
                     continue
                 body = bytearray()
                 try:
@@ -118,7 +122,7 @@ def safe_get(url: str, allowed_domains: list[str], max_bytes: int = 5_000_000, m
                         if len(body) > max_bytes:
                             raise AppError(422, "response_too_large",
                                            f"La respuesta supera el límite de {max_bytes} bytes")
-                except httpx.TransportError as exc:
+                except httpx.HTTPError as exc:        # red, corte o cuerpo ilegible (DecodingError)
                     raise AppError(502, "source_unavailable",
                                    f"La descarga de {request.url.host} se interrumpió ({type(exc).__name__})") from None
                 headers = [(k, v) for k, v in response.headers.multi_items() if k.lower() not in _DROP_HEADERS]

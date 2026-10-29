@@ -61,6 +61,15 @@ def search_form(term: str, date_from: date, date_to: date, start: int = 0, lengt
     }
 
 
+_PRIVATE_HOST = re.compile(rb"(https?:\\?/\\?/)(10(?:\.\d{1,3}){3}|192\.168(?:\.\d{1,3}){2}"
+                           rb"|172\.(?:1[6-9]|2\d|3[01])(?:\.\d{1,3}){2})")
+
+
+def redact_internal_hosts(raw: bytes) -> bytes:
+    """Sustituye por 0.0.0.0 las IP internas que SIDOF filtra en sus respuestas sin `messageCode`."""
+    return _PRIVATE_HOST.sub(rb"\g<1>0.0.0.0", raw)
+
+
 def derive_mangled(raw: bytes) -> bytes:
     """Copia deliberadamente dañada de una nota real: sin fechas y con entidades HTML rotas."""
     data = json.loads(raw)
@@ -106,7 +115,8 @@ def capture(force: bool = False) -> None:
             started = time.monotonic()
             r = http.request(method, url, data=form) if form else http.request(method, url)
             elapsed = time.monotonic() - started
-            (OUT / name).write_bytes(r.content)
+            # Único cambio a lo capturado: se ocultan IP internas del backend de SIDOF (ver README).
+            (OUT / name).write_bytes(redact_internal_hosts(r.content))
             log.append({"file": name, "method": method, "url": url, "status": r.status_code,
                         "bytes": len(r.content), "seconds": round(elapsed, 2),
                         "form": form, "captured_at": datetime.now(timezone.utc).isoformat(timespec="seconds")})

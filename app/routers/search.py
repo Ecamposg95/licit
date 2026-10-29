@@ -15,7 +15,7 @@ from app.core.tenant import get_owned
 from app.models import DataKind, Opportunity, SearchRun, Source, User
 from app.routers.opportunities import _open_counts, _row
 from app.schemas.search import (
-    MAX_RANGE_DAYS, ManualMetadata, OpportunityImport, SearchRunAccepted, SearchRunCreate, SearchRunOut,
+    MAX_RANGE_DAYS, MIN_DATE, ManualMetadata, OpportunityImport, SearchRunAccepted, SearchRunCreate, SearchRunOut,
 )
 from app.schemas.v1 import OpportunityRow
 from app.services import audit, search_runs
@@ -51,6 +51,10 @@ def create_search_run(payload: SearchRunCreate,
         raise AppError(422, "validation_error", "La fecha inicial es posterior a la final")
     if (date_to - date_from).days > MAX_RANGE_DAYS:
         raise AppError(422, "validation_error", f"El rango no puede pasar de {MAX_RANGE_DAYS} días")
+    if date_from < MIN_DATE:
+        raise AppError(422, "date_out_of_range",
+                       f"La búsqueda empieza el {MIN_DATE:%d-%m-%Y} como mínimo: el robots.txt de SIDOF prohíbe "
+                       "consultar notas de 2011 a 2020.")
     run = search_runs.start_search(db, user, payload.terms or [], date_from, date_to, idempotency_key)
     db.commit()
     return SearchRunAccepted(search_run_id=run.id, job_id=run.job_id)
