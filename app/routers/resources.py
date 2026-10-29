@@ -5,9 +5,9 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.permissions import Perm, require_permission
-from app.models import AuditEvent, Document, Organization, Product, Source, Task, User
+from app.models import AuditEvent, Organization, Product, Source, Task, User
 from app.routers.opportunities import _user_ref, task_out
-from app.schemas.v1 import AuditOut, DocumentOut, Page, ProductOut, SourceOut, TaskOut, UserOut
+from app.schemas.v1 import AuditOut, Page, ProductOut, SourceOut, TaskOut, UserOut
 from app.services.demo_seed import reset_demo
 
 router = APIRouter(prefix="/api/v1", tags=["recursos"])
@@ -24,17 +24,6 @@ def list_products(family: str | None = None, data_kind: list[str] = Query(defaul
     if q:
         stmt = stmt.where(Product.name.ilike(f"%{q}%"))
     return [ProductOut.model_validate(p) for p in db.scalars(stmt.order_by(Product.family, Product.name))]
-
-
-@router.get("/documents", response_model=list[DocumentOut], tags=["documentos"])
-def list_documents(scope: str | None = None, data_kind: list[str] = Query(default=[]),
-                   db: Session = Depends(get_db), user: User = Depends(require_permission(Perm.DOCUMENT_READ))):
-    stmt = select(Document).where(Document.organization_id == user.organization_id)
-    if scope:
-        stmt = stmt.where(Document.scope == scope)
-    if data_kind:
-        stmt = stmt.where(Document.data_kind.in_(data_kind))
-    return [DocumentOut.model_validate(d) for d in db.scalars(stmt.order_by(Document.code)).unique()]
 
 
 @router.get("/sources", response_model=list[SourceOut], tags=["fuentes"])

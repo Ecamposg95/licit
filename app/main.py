@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 import app.models  # noqa: F401  registra todas las tablas en Base.metadata
 from app.core import config, errors
-from app.routers import auth, jobs as jobs_router, opportunities, resources
+from app.routers import auth, documents, jobs as jobs_router, opportunities, resources
 from app.services import jobs
 
 
@@ -39,6 +39,7 @@ app.include_router(auth.router)
 app.include_router(opportunities.router)
 app.include_router(resources.router)
 app.include_router(jobs_router.router)
+app.include_router(documents.router)
 
 
 @app.get("/health", include_in_schema=False)

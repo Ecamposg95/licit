@@ -30,6 +30,9 @@ IMPORT_CATALOG = _bool("IMPORT_CATALOG", True)
 # Raíz del almacenamiento local de archivos cuando no hay bucket (OBJECT_STORAGE_BUCKET).
 STORAGE_DIR = os.getenv("STORAGE_DIR", "./.storage")
 
+# Tamaño máximo de un documento cargado por la API (bytes). La ingesta del catálogo tiene su propio tope.
+DOCUMENT_MAX_BYTES = int(os.getenv("DOCUMENT_MAX_BYTES", str(15 * 1024 * 1024)))
+
 # Contraseña de los usuarios demo (@dipromedic.example). Si no se define, no se crean.
 DEMO_USER_PASSWORD = os.getenv("DEMO_USER_PASSWORD")
 ADMIN_EMAIL = os.getenv("ADMIN_EMAIL")
