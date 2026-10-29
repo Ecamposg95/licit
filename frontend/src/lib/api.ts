@@ -1,5 +1,5 @@
 import axios, { type AxiosError } from 'axios'
-import { useAuth } from '@/store/auth'
+import { ACCOUNT_EXPIRED_NOTICE, useAuth } from '@/store/auth'
 import type {
   ApiErrorBody,
   AuditOut,
@@ -28,7 +28,8 @@ export const http = axios.create({
 
 http.interceptors.request.use((config) => {
   const token = useAuth.getState().token
-  if (token) config.headers.Authorization = `Bearer ${token}`
+  // Un Authorization explícito (getMe(token) al cambiar de cuenta) gana sobre el de la sesión guardada.
+  if (token && !config.headers.has('Authorization')) config.headers.Authorization = `Bearer ${token}`
   return config
 })
 
@@ -37,7 +38,15 @@ http.interceptors.response.use(
   (err: AxiosError) => {
     // Sesión vencida o inválida: se cierra y RequireAuth redirige a /login.
     const isLogin = err.config?.url?.endsWith('/auth/login')
-    if (err.response?.status === 401 && !isLogin) useAuth.getState().logout()
+    // Una petición hecha con el token de otra cuenta (el selector, antes de reemplazar la sesión) no cierra la actual.
+    const sent = String(err.config?.headers?.Authorization ?? '')
+    const current = useAuth.getState().token
+    const foreignToken = !!current && !!sent && sent !== `Bearer ${current}`
+    if (err.response?.status === 401 && !isLogin && !foreignToken) {
+      const code = (err.response.data as { code?: string } | undefined)?.code
+      if (code === 'account_expired') useAuth.getState().endSession(ACCOUNT_EXPIRED_NOTICE)
+      else useAuth.getState().logout()
+    }
     return Promise.reject(toApiError(err))
   },
 )

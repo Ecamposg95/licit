@@ -43,6 +43,20 @@ def create_access_token(user_id: str) -> str:
     return jwt.encode({"sub": user_id, "exp": expire}, SECRET_KEY, algorithm=ALGORITHM)
 
 
+def is_expired(user, now: datetime | None = None) -> bool:
+    """¿Venció la cuenta demo? `expires_at` nulo = no vence. SQLite devuelve la fecha sin zona (se guardó en UTC)."""
+    expires_at = user.expires_at
+    if expires_at is None:
+        return False
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    return expires_at <= (now or datetime.now(timezone.utc))
+
+
+def account_expired_error() -> AppError:
+    return AppError(401, "account_expired", "Esta cuenta de demostración venció. Pide a Administración TI que la renueve.")
+
+
 def get_current_user(token: str | None = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     from app.models import User
 
@@ -56,4 +70,6 @@ def get_current_user(token: str | None = Depends(oauth2_scheme), db: Session = D
     user = db.get(User, payload.get("sub") or "")
     if user is None or not user.is_active:
         raise unauthorized
+    if is_expired(user):
+        raise account_expired_error()
     return user

@@ -21,6 +21,7 @@ export default function Login() {
   const location = useLocation()
   const token = useAuth((s) => s.token)
   const setSession = useAuth((s) => s.setSession)
+  const notice = useAuth((s) => s.notice)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<ApiError | null>(null)
@@ -118,6 +119,11 @@ export default function Login() {
                 />
               </div>
 
+              {notice && !error && (
+                <div role="alert" className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+                  {notice}
+                </div>
+              )}
               {error && (
                 <div role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">
                   {error.message}

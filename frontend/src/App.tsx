@@ -11,6 +11,10 @@ import DocumentDetail from '@/pages/documents/DocumentDetail'
 import Tasks from '@/pages/Tasks'
 import Audit from '@/pages/Audit'
 import Operations from '@/pages/Operations'
+import Panel from '@/pages/Panel'
+import Gobierno from '@/pages/Gobierno'
+import TI from '@/pages/TI'
+import { AccountSwitcherSlot } from '@/components/AccountSwitcher'
 
 export default function App() {
   return (
@@ -20,6 +24,8 @@ export default function App() {
         element={
           <SessionGate>
             <Layout />
+            {/* Provisional (frente G): el integrador puede mover esta línea a Layout.tsx. */}
+            <AccountSwitcherSlot />
           </SessionGate>
         }
       >
@@ -33,6 +39,9 @@ export default function App() {
         <Route path="/pendientes" element={<Tasks />} />
         <Route path="/bitacora" element={<Audit />} />
         <Route path="/operacion" element={<Operations />} />
+        <Route path="/panel" element={<Panel />} />
+        <Route path="/gobierno" element={<Gobierno />} />
+        <Route path="/ti" element={<TI />} />
       </Route>
       <Route path="*" element={<Navigate to="/radar" replace />} />
     </Routes>
