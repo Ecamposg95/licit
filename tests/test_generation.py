@@ -213,3 +213,200 @@ def test_assessments_are_read_when_present(db):
     other = next(r for r in snap["requirements"] if r["code"] == "DEMO-REQ-002")
     assert other["assessments"] == []
 
+
+# ── F2 · plantillas DOCX ─────────────────────────────────────────────────────
+
+from docx import Document as DocxDocument  # noqa: E402
+from docx.oxml.ns import qn  # noqa: E402
+
+from app.services.generation.docx_templates import HEADER_TEXT, TEMPLATE_VERSION, TEMPLATES  # noqa: E402
+
+
+def _paragraph_texts(element) -> list[str]:
+    return ["".join(t.text or "" for t in p.iter(qn("w:t"))) for p in element.iter(qn("w:p"))]
+
+
+def docx_parts(data: bytes) -> dict:
+    """Texto del cuerpo (incluye tablas), del encabezado y del pie de un DOCX."""
+    doc = DocxDocument(io.BytesIO(data))
+    section = doc.sections[0]
+    return {
+        "body": "\n".join(_paragraph_texts(doc.element.body)),
+        "header": "\n".join(_paragraph_texts(section.header._element)),
+        "footer": "\n".join(_paragraph_texts(section.footer._element)),
+        "doc": doc,
+    }
+
+
+def render_all(snapshot: dict) -> dict[str, bytes]:
+    return {key: render(snapshot) for key, render in TEMPLATES.items()}
+
+
+def tables_of(data: bytes) -> list[list[list[str]]]:
+    doc = DocxDocument(io.BytesIO(data))
+    return [[[c.text for c in row.cells] for row in t.rows] for t in doc.tables]
+
+
+SIX = ["resumen", "matriz", "faltantes", "indice", "propuesta_tecnica", "propuesta_economica"]
+
+
+def test_template_registry():
+    assert TEMPLATE_VERSION == "1.0"
+    assert list(TEMPLATES) == SIX
+
+
+def test_all_templates_have_watermark(db):
+    snap = snapshot_of(db)
+    for key, data in render_all(snap).items():
+        parts = docx_parts(data)
+        assert config.WATERMARK in parts["footer"], key
+        assert snap["data_version"] in parts["footer"], key
+        assert HEADER_TEXT == "Dipromedic · Borrador de expediente · DEMO"
+        assert parts["header"].strip() == HEADER_TEXT, key
+        assert "Borrador · no apto para presentación" in parts["body"], key
+        # La fecha de generación está en el pie, en hora de Ciudad de México.
+        assert re.search(r"\d{2}/\d{2}/\d{4} \d{2}:\d{2}", parts["footer"]), key
+
+
+def test_economic_totals_text(db):
+    snap = snapshot_of(db)
+    parts = docx_parts(render_all(snap)["propuesta_economica"])
+    assert "60,000.00" in parts["body"]
+    assert "Total: 162,000.00 MXN" in parts["body"]
+    assert snap["fiscal"]["text"] in parts["body"]
+    [table] = tables_of(render_all(snap)["propuesta_economica"])
+    assert table[0] == ["Partida", "Descripción", "Cantidad", "Unidad", "Precio unitario", "Moneda", "Subtotal",
+                        "Origen del precio"]
+    row1 = table[1]
+    assert row1[0] == "1" and row1[2] == "40" and row1[3] == "pieza" and row1[4] == "1,500.00"
+    assert row1[5] == "MXN" and row1[6] == "60,000.00" and row1[7].startswith("SIMULADO")
+
+
+def test_economic_partial_total_shows_pending_prices(db):
+    opp = lic(db)
+    next(l for l in opp.lots if l.number == "2").proposed_variant_id = real_variant(db, opp.organization_id).id
+    db.flush()
+    db.expire_all()
+    snap = snapshot_of(db)
+    data = render_all(snap)["propuesta_economica"]
+    body = docx_parts(data)["body"]
+    assert "Total parcial: 120,000.00 MXN" in body
+    row2 = tables_of(data)[0][2]
+    assert "[PENDIENTE: precio]" in row2[4] and "[PENDIENTE: precio]" in row2[6]
+    assert "SIMULADO" not in row2[7]
+    assert "[PENDIENTE: aprobación comercial de precios]" in body
+
+
+def test_pending_markers_for_open_requirements(db):
+    snap = snapshot_of(db)
+    open_mandatory = [r for r in snap["requirements"] if r["open"] and r["mandatory"] is not False]
+    assert len(open_mandatory) >= 5
+    texts = {k: docx_parts(v)["body"] for k, v in render_all(snap).items()}
+    for key in ("matriz", "faltantes"):
+        assert texts[key].count("[PENDIENTE") >= len(open_mandatory), key
+    # El código de cada requisito abierto aparece en la lista de faltantes.
+    for req in open_mandatory:
+        assert req["code"] in texts["faltantes"]
+
+
+def test_faltantes_assigns_owner_and_due_date_or_marks_pending(db):
+    snap = snapshot_of(db)
+    [table, *_] = tables_of(render_all(snap)["faltantes"])
+    header = table[0]
+    assert header[:2] == ["No.", "Código"] and "Responsable" in header and "Fecha límite" in header
+    by_code = {row[1]: dict(zip(header, row)) for row in table[1:]}
+    task_reqs = {r["code"]: r["open_task"] for r in snap["requirements"] if r["open_task"]}
+    assert task_reqs, "el escenario trae tareas abiertas"
+    code, task = next(iter(task_reqs.items()))
+    assert task["assignee"] in by_code[code]["Responsable"]
+    no_task = next(r["code"] for r in snap["requirements"] if r["open"] and not r["open_task"] and r["code"] in by_code)
+    assert "[PENDIENTE: responsable]" in by_code[no_task]["Responsable"]
+
+
+def test_no_signature_words(db):
+    # El texto de los datos se cita tal cual (las bases reales pueden decir «firmado»); aquí se neutraliza el único
+    # texto de los fixtures que contiene la subcadena, para probar que las plantillas no la introducen.
+    req = db.scalars(select(Requirement).where(Requirement.code == "DEMO-REQ-006")).one()
+    req.next_action = "Solicitar a planta la evidencia"
+    db.flush()
+    db.expire_all()
+    snap = snapshot_of(db)
+    forbidden = re.compile(r"firma|sello|presentado", re.IGNORECASE)
+    for key, data in render_all(snap).items():
+        parts = docx_parts(data)
+        text = "\n".join([parts["body"], parts["header"], parts["footer"]]).replace(config.WATERMARK, "")
+        assert not forbidden.search(text), (key, forbidden.search(text).group(0))
+        # Tampoco hay espacios para rubricas ni líneas de firma.
+        assert "____" not in text, key
+
+
+def test_templates_render_with_minimal_data_and_mark_everything_pending(db):
+    """Una oportunidad sin partidas, sin requisitos ni fechas: nada se inventa y todo queda pendiente."""
+    org = db.scalars(select(Organization)).first()
+    opp = Opportunity(organization_id=org.id, external_id="DEMO-VACIA", normalized_id="DEMOVACIA", title="Vacía",
+                      buyer="Institución ficticia", data_kind="SYNTHETIC", verification_status="simulada")
+    db.add(opp)
+    db.flush()
+    snap = build_snapshot(db, opp)
+    assert snap["totals"]["lots_total"] == 0 and snap["totals"]["known_total"] is None
+    texts = {k: docx_parts(v)["body"] for k, v in render_all(snap).items()}
+    assert "[PENDIENTE: fecha de presentación]" in texts["resumen"]
+    assert "[PENDIENTE: unidad compradora]" in texts["resumen"]
+    assert "Afinidad no calculada" in texts["resumen"]
+    assert "Sin evaluación técnica" in texts["propuesta_tecnica"] or "partidas" in texts["propuesta_tecnica"]
+    assert "Total no calculable" in texts["propuesta_economica"]
+    assert "No hay requisitos capturados" in texts["matriz"]
+
+
+def test_technical_proposal_shows_both_values_and_never_grants_compliance(db):
+    snap = snapshot_of(db)
+    data = render_all(snap)["propuesta_tecnica"]
+    body = docx_parts(data)["body"]
+    assert "Sin evaluación técnica" in body
+    assert "DEMO-PLA-003" in body and "DEMO-SIN-VALIDEZ" in body
+    # Medida incompatible a la vista: la partida 2 exige 12 orificios y el catálogo declara 10.
+    tables = tables_of(data)
+    flat = [cell for t in tables for row in t for cell in row]
+    assert any("12" in c for c in flat) and any(c.strip() == "10" or c.startswith("10 ") for c in flat)
+    assert "Cumple ·" not in body and "cumple_validado" not in body
+
+
+def test_technical_proposal_cites_assessments_and_catalog_credit(db):
+    opp = lic(db)
+    lot = next(l for l in opp.lots if l.number == "1")
+    variant = real_variant(db, opp.organization_id)
+    lot.proposed_variant_id = variant.id
+    req = db.scalars(select(Requirement).where(Requirement.code == "DEMO-REQ-002")).one()
+    db.add(MatchAssessment(organization_id=opp.organization_id, opportunity_id=opp.id, lot_id=lot.id,
+                           variant_id=variant.id, requirement_id=req.id, result="coincide",
+                           explanation="La ficha lista 6 orificios.", rule="eq", engine_version="1",
+                           catalog_value="6", source_text="6 orificios"))
+    db.flush()
+    db.expire_all()
+    snap = snapshot_of(db)
+    body = docx_parts(render_all(snap)["propuesta_tecnica"])["body"]
+    assert "La ficha lista 6 orificios." in body and "6 orificios" in body
+    assert ("Contenido de catálogo: DIPROMEDIC S.A. DE C.V. · www.dipromedic.com · consultado el 2026-10-28"
+            in body)
+    assert "[PENDIENTE: precio]" not in body
+
+
+def test_index_lists_documents_without_bundling_them(db):
+    snap = snapshot_of(db)
+    body = docx_parts(render_all(snap)["indice"])["body"]
+    assert snap["documents"], "el escenario trae documentos"
+    for doc in snap["documents"]:
+        assert doc["code"] in body
+    assert "No se incluye el archivo" in body
+    assert "01_resumen_oportunidad.docx" in body and "manifest.json" in body
+    assert "[PENDIENTE: documento" in body      # requisitos abiertos sin evidencia
+
+
+def test_xml_control_characters_do_not_break_rendering(db):
+    req = db.scalars(select(Requirement).where(Requirement.code == "DEMO-REQ-001")).one()
+    req.text = "Placa\x1f de\x0b titanio"      # Postgres no admite NUL; el resto de los controles sí
+    db.flush()
+    db.expire_all()
+    body = docx_parts(render_all(snapshot_of(db))["matriz"])["body"]
+    assert "Placa de titanio" in body
+

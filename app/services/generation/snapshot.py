@@ -11,7 +11,7 @@ import re
 from datetime import date, datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.core import config
@@ -209,10 +209,13 @@ def _document_block(doc: Document) -> dict:
 def _documents(db: Session, opp: Opportunity, evidence_doc_ids: set[str]) -> list[Document]:
     """Los mismos documentos que ve el expediente: del procedimiento, de los productos propuestos o enlazados."""
     product_ids = {l.proposed_variant.product_id for l in opp.lots if l.proposed_variant is not None}
-    docs = db.scalars(select(Document).where(Document.organization_id == opp.organization_id)).unique()
-    picked = [d for d in docs if d.opportunity_id == opp.id or (d.product_id and d.product_id in product_ids)
-              or d.id in evidence_doc_ids]
-    return sorted(picked, key=lambda d: (d.code or "", d.title, d.id))
+    conditions = [Document.opportunity_id == opp.id]
+    if product_ids:
+        conditions.append(Document.product_id.in_(product_ids))
+    if evidence_doc_ids:
+        conditions.append(Document.id.in_(evidence_doc_ids))
+    docs = db.scalars(select(Document).where(Document.organization_id == opp.organization_id, or_(*conditions))).unique()
+    return sorted(docs, key=lambda d: (d.code or "", d.title, d.id))
 
 
 def _requirements_block(db: Session, opp: Opportunity, assessments: list[MatchAssessment]) -> tuple[list[dict], set]:

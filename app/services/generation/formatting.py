@@ -99,6 +99,10 @@ DATA_KIND_LABEL = {"REAL": "REAL", "HISTORICAL": "HISTÓRICO", "SYNTHETIC": "SIM
 PRICE_KIND_LABEL = {"REAL": "REAL", "HISTORICAL": "HISTÓRICO", "SYNTHETIC": "SIMULADO"}
 DECISION_LABEL = {"pendiente": "Sin decisión registrada", "participar": "Participar", "no_participar": "No participar"}
 EVIDENCE_DECISION_LABEL = {"propuesta": "propuesta, sin revisar", "aceptada": "aceptada", "rechazada": "rechazada"}
+VERIFICATION_LABEL = {"por_verificar": "Por verificar", "verificada": "Verificada", "desactualizada": "Desactualizada",
+                      "fuente_inaccesible": "Fuente inaccesible", "simulada": "Simulada"}
+ATTRIBUTE_LABEL = {"material": "Material", "holes": "Orificios", "diameter_mm": "Diámetro", "length_mm": "Longitud",
+                   "size_demo": "Talla (demostración)", "side": "Lado", "stock_demo": "Existencias (demostración)"}
 OPERATOR_LABEL = {"eq": "igual a", "gte": "mínimo", "lte": "máximo", "gt": "mayor que", "lt": "menor que"}
 
 
