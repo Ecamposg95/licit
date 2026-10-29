@@ -297,3 +297,143 @@ def test_download_without_file_or_lost_file_is_404(client, analista):
     get_storage().delete(f"org/{org_id()}/documents/{up['id']}/v1/ficha.pdf")
     r = download(client, analista, up["id"])
     assert r.status_code == 404 and r.json()["code"] == "file_missing"
+
+
+# ── D4 · documentos de prueba con marca DEMO ─────────────────────────────────
+
+from app.services import demo_documents  # noqa: E402
+from app.services.demo_seed import reset_demo  # noqa: E402
+
+
+def test_demo_pdf_contains_watermark():
+    data = demo_documents.render_demo_pdf("Ficha técnica de prueba", [
+        "Producto: Placa bloqueada demostración variante 1", "Registro sanitario: DEMO-SIN-VALIDEZ",
+        demo_documents.PAGE_BREAK, "Segunda página con más texto",
+    ])
+    assert data.startswith(b"%PDF-")
+    assert b"/Filter" not in data                                   # sin compresión: el texto se puede buscar
+    # Marca exacta en los metadatos (UTF-8) y en el contenido de cada página (diagonal + pie, en latin-1).
+    assert config.WATERMARK.encode("utf-8") in data
+    assert data.count(config.WATERMARK.encode("latin-1")) == 2 * 2
+    assert config.FICTITIOUS_REGISTRY.encode() in data
+    assert demo_documents.has_demo_watermark(data)
+    assert not demo_documents.has_demo_watermark(pdf_bytes("sin marca"))
+    assert uploads_page_count(data) == 2
+    # Determinista: mismos datos, mismos bytes (el reinicio del demo no cambia los hashes).
+    assert data == demo_documents.render_demo_pdf("Ficha técnica de prueba", [
+        "Producto: Placa bloqueada demostración variante 1", "Registro sanitario: DEMO-SIN-VALIDEZ",
+        demo_documents.PAGE_BREAK, "Segunda página con más texto",
+    ])
+
+
+def uploads_page_count(data: bytes):
+    from app.services.uploads import pdf_page_count
+    return pdf_page_count(data)
+
+
+def test_demo_pdf_tolerates_characters_outside_latin1():
+    data = demo_documents.render_demo_pdf("Vigencia ≥ 90 días — “ficticia” ✓", ["Vigencia: fecha base −10 días"])
+    assert data.startswith(b"%PDF-") and demo_documents.has_demo_watermark(data)
+
+
+def _synthetic_versions(db):
+    return db.execute(select(DocumentVersion, Document).join(Document, Document.id == DocumentVersion.document_id)
+                      .where(Document.data_kind == "SYNTHETIC").order_by(Document.code)).all()
+
+
+def test_reset_attaches_demo_files():
+    storage = get_storage()
+    with SessionLocal() as db:
+        rows = _synthetic_versions(db)
+        assert len(rows) == 12
+        org = db.get(Organization, org_id())
+        for version, doc in rows:
+            assert version.storage_key == f"demo/{org.id}/{doc.code}.pdf"
+            data = storage.get(version.storage_key)
+            assert version.sha256 == hashlib.sha256(data).hexdigest()
+            assert version.size_bytes == len(data) and version.content_type == "application/pdf"
+            assert version.filename == f"{doc.code}.pdf"
+            assert demo_documents.has_demo_watermark(data)
+            assert doc.page_count and doc.page_count >= 1
+        hashes = {doc.code: v.sha256 for v, doc in rows}
+    # El PDF cita el fragmento que la evidencia de la semilla señala (DEMO-DOC-007: «Material: no declarado»).
+    doc7 = storage.get(f"demo/{org_id()}/DEMO-DOC-007.pdf")
+    assert b"Material: no declarado" in doc7
+
+    # Una carga SYNTHETIC del presentador y un reinicio: el reinicio borra los archivos anteriores (y la carga),
+    # vuelve a guardar los 12 y los hashes no cambian.
+    uploaded = upload(client_for_tests(), login(client_for_tests(), "analista1@dipromedic.example"), pdf_bytes("presentador"))
+    assert uploaded.status_code == 201
+    uploaded_key = f"org/{org_id()}/documents/{uploaded.json()['id']}/v1/ficha.pdf"
+    assert storage.exists(uploaded_key)
+    with SessionLocal() as db:
+        org = db.get(Organization, org_id())
+        reset_demo(db, org, actor_id=None)
+        db.commit()
+    assert not storage.exists(uploaded_key)
+    with SessionLocal() as db:
+        rows = _synthetic_versions(db)
+        assert len(rows) == 12
+        assert {doc.code: v.sha256 for v, doc in rows} == hashes
+        assert all(storage.exists(v.storage_key) for v, _ in rows)
+
+
+def client_for_tests():
+    from fastapi.testclient import TestClient
+    from app.main import app
+    return TestClient(app)
+
+
+def test_reset_rollback_keeps_files():
+    storage = get_storage()
+    with SessionLocal() as db:
+        keys = [v.storage_key for v, _ in _synthetic_versions(db)]
+        org = db.get(Organization, org_id())
+        stale = f"demo/{org.id}/viejo.pdf"
+        storage.put(stale, pdf_bytes("viejo"), "application/pdf")
+        demo_documents.delete_after_commit(db, [stale])
+        db.rollback()                                  # el reinicio se revirtió: nada se borra
+        db.commit()
+    assert storage.exists(stale) and all(storage.exists(k) for k in keys)
+    with SessionLocal() as db:
+        demo_documents.delete_after_commit(db, [stale])
+        db.commit()
+    assert not storage.exists(stale)
+
+
+def test_ensure_demo_files_restores_lost_objects():
+    storage = get_storage()
+    with SessionLocal() as db:
+        rows = _synthetic_versions(db)
+        lost = [v.storage_key for v, _ in rows][:3]
+    for key in lost:
+        storage.delete(key)
+    with SessionLocal() as db:
+        assert demo_documents.ensure_demo_files(db, org_id()) == 3
+        assert demo_documents.ensure_demo_files(db, org_id()) == 0
+    assert all(storage.exists(k) for k in lost)
+
+
+def test_demo_documents_are_downloadable(client, analista):
+    with SessionLocal() as db:
+        doc = db.scalars(select(Document).where(Document.code == "DEMO-DOC-002")).one()
+        doc_id = doc.id
+    r = download(client, analista, doc_id)
+    assert r.status_code == 200 and demo_documents.has_demo_watermark(r.content)
+    assert r.headers["content-disposition"].startswith("inline;")
+
+
+def test_upload_sample_script_and_upload(client, analista, tmp_path):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("make_sample", "scripts/make_demo_upload_sample.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    out = module.main(tmp_path / "ficha.pdf")
+    data = out.read_bytes()
+    assert demo_documents.has_demo_watermark(data) and b"DEMO-PLA-001" in data
+    assert data == demo_documents.render_upload_sample()
+    # El presentador lo sube como documento SYNTHETIC y queda con marca DEMO.
+    r = upload(client, analista, data, filename=demo_documents.UPLOAD_SAMPLE_NAME)
+    assert r.status_code == 201, r.text
+    assert r.json()["data_kind"] == "SYNTHETIC" and r.json()["watermark"] == config.WATERMARK
+    assert r.json()["page_count"] == 1
