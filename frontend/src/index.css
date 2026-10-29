@@ -10,8 +10,12 @@
     background-color: theme('colors.canvas');
   }
   :focus-visible {
-    outline: 2px solid theme('colors.petrol.500');
+    outline: 2px solid theme('colors.dpm.blue.DEFAULT');
     outline-offset: 2px;
+  }
+  /* Superficies navy (barra superior, panel del login): el contorno de foco pasa a blanco. */
+  .surface-dark :focus-visible {
+    outline-color: theme('colors.white');
   }
   @media (prefers-reduced-motion: reduce) {
     *,
@@ -26,29 +30,43 @@
 
 @layer components {
   .input {
-    @apply w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-petrol-500 focus:outline-none focus:ring-1 focus:ring-petrol-500 disabled:bg-slate-100;
+    @apply w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-dpm-blue focus:outline-none focus:ring-1 focus:ring-dpm-blue disabled:bg-slate-100;
   }
   .label {
     @apply mb-1 block text-xs font-medium text-slate-600;
   }
+  /* Botones en pastilla y peso 600, como los del sitio de Dipromedic. */
   .btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-md px-3.5 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex items-center justify-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50;
   }
+  /* Acción principal: azul corporativo con texto blanco (4.89:1). */
   .btn-primary {
-    @apply btn bg-petrol-700 text-white hover:bg-petrol-800;
+    @apply btn bg-dpm-blue text-white shadow-sm hover:bg-dpm-blue-700 active:bg-dpm-blue-800;
+  }
+  /* Acento: degradado verde del sitio con texto navy (5.70:1 en el extremo oscuro). Nunca texto blanco. */
+  .btn-accent {
+    @apply btn bg-dpm-accent text-dpm-navy shadow-sm hover:brightness-95 active:brightness-90;
   }
   .btn-secondary {
-    @apply btn border border-slate-300 bg-white text-slate-700 hover:bg-slate-50;
+    @apply btn border border-slate-300 bg-white text-slate-700 hover:border-dpm-blue-300 hover:bg-dpm-blue-50 hover:text-dpm-blue-800;
   }
   .btn-danger {
     @apply btn bg-red-700 text-white hover:bg-red-800;
   }
   .btn-ghost {
-    @apply btn px-2.5 text-slate-600 hover:bg-slate-100;
+    @apply btn px-2.5 font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900;
   }
   /* Acción no disponible en esta entrega: enfocable para leer el motivo, sin efecto. */
   .btn-unavailable {
-    @apply btn cursor-not-allowed border border-dashed border-slate-300 bg-white text-slate-400;
+    @apply btn cursor-not-allowed border border-dashed border-slate-300 bg-white font-medium text-slate-400;
+  }
+  /* Enlace de texto en azul (6.73:1 sobre blanco, 5.46:1 sobre el tinte 100). */
+  .link {
+    @apply font-medium text-dpm-blue-700 underline-offset-2 hover:text-dpm-blue-800 hover:underline;
+  }
+  /* Subrayado verde de los títulos de sección del sitio (90×5 px), a escala de aplicación. */
+  .brand-rule {
+    @apply block h-1 w-14 rounded-full bg-dpm-accent;
   }
   .card {
     @apply rounded-lg border border-slate-200 bg-white;
