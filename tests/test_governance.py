@@ -297,3 +297,196 @@ def test_expired_account_token_rejected(client):
     # Otra cuenta no se ve afectada.
     assert client.get("/api/v1/auth/me", headers=login(client, "revisor@dipromedic.example")).status_code == 200
 
+
+# ── G3 · Datos para dirección y TI ───────────────────────────────────────────
+
+def _real_opportunity(db, external_id: str, *, verified: bool = True, submission_in_days: int | None = 10,
+                      checked_hours_ago: int = 1) -> str:
+    from app.models import Opportunity, Source
+
+    org_id = _org_id(db)
+    source = db.scalars(select(Source).where(Source.key == "dof_sidof")).one()
+    now = utcnow()
+    opp = Opportunity(
+        organization_id=org_id, external_id=external_id, normalized_id=external_id.replace("-", ""),
+        title=f"Procedimiento real {external_id}", buyer="IMSS", data_kind="REAL", source_id=source.id,
+        source_url="https://sidof.segob.gob.mx/notas/1", last_checked_at=now - timedelta(hours=checked_hours_ago),
+        verification_status="verificada" if verified else "por_verificar",
+        submission_at=now + timedelta(days=submission_in_days) if submission_in_days is not None else None,
+        families=["Osteosíntesis"])
+    db.add(opp)
+    db.commit()
+    return opp.id
+
+
+def test_dashboard_never_mixes_kinds(client, direccion):
+    db = SessionLocal()
+    _real_opportunity(db, "REAL-A")
+    _real_opportunity(db, "REAL-B", verified=False)
+    db.close()
+
+    r = client.get("/api/v1/dashboard/direccion", headers=direccion)
+
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert "total" not in body                                   # nunca un total combinado
+    assert set(body["by_data_kind"]) == {"REAL", "HISTORICAL", "SYNTHETIC"}
+    kinds = body["by_data_kind"]
+    assert kinds["REAL"]["total"] == 2
+    assert kinds["REAL"]["por_estado"] == {"abierta_verificada": 1, "por_verificar": 1}
+    assert kinds["HISTORICAL"]["total"] == 3
+    assert kinds["SYNTHETIC"]["total"] == 8
+    assert set(kinds["SYNTHETIC"]["por_estado"]) == {"simulada"}  # lo simulado no se mezcla con estados reales
+    for kind, summary in kinds.items():
+        assert set(summary) == {"total", "por_estado"}, kind
+        assert sum(summary["por_estado"].values()) == summary["total"], kind
+
+
+def test_dashboard_empty_kind_is_zero_not_missing(client, direccion):
+    body = client.get("/api/v1/dashboard/direccion", headers=direccion).json()
+    assert body["by_data_kind"]["REAL"] == {"total": 0, "por_estado": {}}
+    assert body["upcoming_real"] == []
+    assert body["last_search"] is None
+
+
+def test_upcoming_real_excludes_synthetic_future(client, direccion):
+    db = SessionLocal()
+    later = _real_opportunity(db, "REAL-LATER", submission_in_days=20)
+    sooner = _real_opportunity(db, "REAL-SOONER", submission_in_days=5)
+    _real_opportunity(db, "REAL-UNVERIFIED", verified=False, submission_in_days=3)
+    _real_opportunity(db, "REAL-STALE", checked_hours_ago=72, submission_in_days=4)      # desactualizada
+    _real_opportunity(db, "REAL-PAST", submission_in_days=-2)                             # fecha transcurrida
+    _real_opportunity(db, "REAL-NODATE", submission_in_days=None)
+    db.close()
+
+    body = client.get("/api/v1/dashboard/direccion", headers=direccion).json()
+
+    ids = [o["id"] for o in body["upcoming_real"]]
+    assert ids == [sooner, later]                                 # por fecha de presentación
+    assert all(o["data_kind"] == "REAL" and o["derived"]["code"] == "abierta_verificada"
+               for o in body["upcoming_real"])
+    # Los escenarios simulados con fecha futura (los 8 de la semilla) jamás aparecen como oportunidad real.
+    assert not any(o["external_id"].startswith("DEMO-") for o in body["upcoming_real"])
+    assert body["by_data_kind"]["SYNTHETIC"]["total"] == 8
+
+
+def test_upcoming_real_empty_when_only_synthetic_is_open(client, direccion):
+    body = client.get("/api/v1/dashboard/direccion", headers=direccion).json()
+    assert body["by_data_kind"]["SYNTHETIC"]["total"] == 8 and body["upcoming_real"] == []
+
+
+def test_scenarios_at_risk_are_synthetic_with_blockers(client, direccion):
+    db = SessionLocal()
+    expected = {}
+    for req in db.scalars(select(Requirement)):
+        if req.mandatory is True and req.status in ("incumple", "faltante", "vencido"):
+            expected.setdefault(req.opportunity_id, []).append(req.code)
+    db.close()
+
+    body = client.get("/api/v1/dashboard/direccion", headers=direccion).json()
+
+    risks = body["scenarios_at_risk"]
+    assert [r["external_id"] for r in risks] == sorted(r["external_id"] for r in risks)
+    assert {r["opportunity_id"] for r in risks} == set(expected)
+    for risk in risks:
+        assert risk["data_kind"] == "SYNTHETIC" and risk["external_id"].startswith("DEMO-LIC-")
+        assert risk["blocking"] == sorted(expected[risk["opportunity_id"]]) and risk["title"]
+    by_id = {r["external_id"]: r["blocking"] for r in risks}
+    assert by_id["DEMO-LIC-001"] == ["DEMO-REQ-005", "DEMO-REQ-006", "DEMO-REQ-007"]
+    assert "DEMO-LIC-007" not in by_id                            # solo pendientes: aún no es un bloqueo
+
+
+def test_last_search_minimal_fields(client, direccion):
+    from app.models import SearchRun
+
+    db = SessionLocal()
+    org_id = _org_id(db)
+    now = utcnow()
+    db.add(SearchRun(organization_id=org_id, query={"terms": ["placa"]}, status="done",
+                     started_at=now - timedelta(minutes=9), finished_at=now - timedelta(minutes=8),
+                     counts={"found": 3}, errors=[], created_at=now - timedelta(minutes=10)))
+    newest = SearchRun(organization_id=org_id, query={"terms": ["clavo"]}, status="partial",
+                       started_at=now - timedelta(minutes=2), finished_at=now - timedelta(minutes=1),
+                       counts={"found": 1}, errors=[{"term": "tornillo", "error": "timeout"}], created_at=now)
+    db.add(newest)
+    db.commit()
+    newest_id = newest.id
+    db.close()
+
+    run = client.get("/api/v1/dashboard/direccion", headers=direccion).json()["last_search"]
+
+    assert set(run) == {"id", "status", "started_at", "finished_at", "counts", "errors"}
+    assert run["id"] == newest_id and run["status"] == "partial"
+    assert run["counts"] == {"found": 1} and run["errors"] == [{"term": "tornillo", "error": "timeout"}]
+
+
+def test_dashboard_requires_login_and_read_permission(client):
+    assert client.get("/api/v1/dashboard/direccion").status_code == 401
+
+
+def test_ops_status_for_ti(client, ti, monkeypatch):
+    from app.models import Job
+    from app.services import jobs as jobs_service
+
+    monkeypatch.setenv("RAILWAY_GIT_COMMIT_SHA", "abcdef1234567890")
+    monkeypatch.setattr(jobs_service, "worker_alive", lambda: True)
+    db = SessionLocal()
+    org_id = _org_id(db)
+    for i in range(25):
+        db.add(Job(organization_id=org_id, kind="test.ok", payload={}, status="done" if i % 2 else "queued",
+                   created_at=utcnow() + timedelta(seconds=i), message=f"trabajo {i}"))
+    db.commit()
+    db.close()
+
+    r = client.get("/api/v1/ops/status", headers=ti)
+
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["version"] == "abcdef1"
+    assert body["storage_backend"] == "local" and body["storage_error"] is None
+    assert body["worker_alive"] is True
+    assert body["alembic_head"] is None                            # las pruebas crean el esquema sin Alembic
+    assert {s["key"] for s in body["sources"]} == {"dof_sidof", "comprasmx", "imss", "escenarios_demo"}
+    assert len(body["jobs"]) == 20
+    assert [j["message"] for j in body["jobs"]][:2] == ["trabajo 24", "trabajo 23"]     # los más recientes
+    assert "result" not in body["jobs"][0] and "payload" not in body["jobs"][0]
+    assert body["demo_run"]["id"] and body["demo_run"]["summary"]["scenarios"] == 8
+
+
+def test_ops_status_reports_what_is_true(client, ti, monkeypatch):
+    from app.services import jobs as jobs_service, storage
+
+    monkeypatch.setattr(storage, "_s3_storage", storage._s3_storage.__wrapped__)       # sin caché entre pruebas
+
+    monkeypatch.setattr(jobs_service, "worker_alive", lambda: False)
+    monkeypatch.setenv("OBJECT_STORAGE_BUCKET", "demo")                 # configuración a medias: no es «local»
+    body = client.get("/api/v1/ops/status", headers=ti).json()
+    assert body["worker_alive"] is False
+    assert body["storage_backend"] == "invalid" and "OBJECT_STORAGE_ENDPOINT" in body["storage_error"]
+
+    for var, value in (("OBJECT_STORAGE_ENDPOINT", "https://bucket.example"), ("OBJECT_STORAGE_ACCESS_KEY", "k"),
+                       ("OBJECT_STORAGE_SECRET_KEY", "s")):
+        monkeypatch.setenv(var, value)
+    body = client.get("/api/v1/ops/status", headers=ti).json()
+    assert body["storage_backend"] == "s3" and body["storage_error"] is None
+    assert "bucket.example" not in json.dumps(body)               # el estado dice el tipo, no la configuración
+
+
+def test_ops_status_reads_alembic_revision(client, ti):
+    db = SessionLocal()
+    db.execute(text("CREATE TABLE alembic_version (version_num VARCHAR(32) NOT NULL)"))
+    db.execute(text("INSERT INTO alembic_version (version_num) VALUES ('05442fa8b315')"))
+    db.commit()
+    try:
+        assert client.get("/api/v1/ops/status", headers=ti).json()["alembic_head"] == "05442fa8b315"
+    finally:
+        db.execute(text("DROP TABLE alembic_version"))
+        db.commit()
+        db.close()
+
+
+def test_ops_status_permissions(client, analista, direccion, ti):
+    assert client.get("/api/v1/ops/status", headers=analista).status_code == 403
+    assert client.get("/api/v1/ops/status").status_code == 401
+    assert client.get("/api/v1/ops/status", headers=direccion).status_code == 200      # audit.read
+    assert client.get("/api/v1/ops/status", headers=ti).status_code == 200            # source.manage y audit.read

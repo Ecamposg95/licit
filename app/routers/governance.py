@@ -8,18 +8,19 @@ from sqlalchemy.orm import Session
 from app.core import config
 from app.core.database import get_db
 from app.core.errors import AppError
-from app.core.permissions import ROLE_LABELS, ROLE_PERMISSIONS, Perm, Role, require_permission
-from app.core.security import is_expired
+from app.core.permissions import ROLE_LABELS, ROLE_PERMISSIONS, Perm, Role, permissions_for, require_permission
+from app.core.security import get_current_user, is_expired
 from app.core.tenant import get_owned
 from app.models import (
     AuditEvent, BidWorkspace, DemoRun, GeneratedArtifact, Opportunity, Requirement, User,
 )
+from app.routers.opportunities import _open_counts, _row
 from app.schemas.governance import (
-    PERMISSION_LABELS_ES, ApprovalOut, ApprovalTarget, DemoAccount, DemoRunOut, IntegrityResult, PermissionLabel,
-    PermissionMatrix, RolePermissions, RoleRef,
+    PERMISSION_LABELS_ES, ApprovalOut, ApprovalTarget, DemoAccount, DemoRunOut, DirectionDashboard,
+    IntegrityResult, OpsStatus, PermissionLabel, PermissionMatrix, RolePermissions, RoleRef,
 )
-from app.schemas.v1 import UserRef
-from app.services import audit
+from app.schemas.v1 import OpportunityRow, UserRef
+from app.services import audit, dashboard
 from app.services.demo_seed import DEMO_USERS, current_demo_run_id
 
 router = APIRouter(prefix="/api/v1", tags=["gobierno"])
@@ -214,3 +215,40 @@ def demo_accounts(db: Session = Depends(get_db)):
     return [DemoAccount(email=u.email, full_name=u.full_name,
                         roles=[r.label for r in _roles(u)]) for u in users]
 
+
+# ── Panel de dirección ───────────────────────────────────────────────────────
+
+@router.get("/dashboard/direccion", response_model=DirectionDashboard)
+def direction_dashboard(db: Session = Depends(get_db),
+                        user: User = Depends(require_permission(Perm.OPPORTUNITY_READ))):
+    """Cartera separada por tipo de dato. No hay total combinado: sumar REAL con SYNTHETIC sería engañoso."""
+    now = datetime.now(timezone.utc)
+    data = dashboard.direccion(db, user.organization_id, now)
+    upcoming = data["upcoming_real"]
+    counts = _open_counts(db, [o.id for o in upcoming])
+    return DirectionDashboard(
+        by_data_kind=data["by_data_kind"],
+        upcoming_real=[OpportunityRow(**_row(o, counts.get(o.id, 0), now)) for o in upcoming],
+        last_search=data["last_search"],
+        scenarios_at_risk=data["scenarios_at_risk"],
+    )
+
+
+# ── Estado operativo (TI) ────────────────────────────────────────────────────
+
+def require_any_permission(*perms: Perm):
+    def checker(user: User = Depends(get_current_user)):
+        have = permissions_for(user.role_names)
+        if not any(p in have for p in perms):
+            raise AppError(403, "forbidden", "Tu rol no tiene ninguno de los permisos requeridos: "
+                           + ", ".join(p.value for p in perms))
+        return user
+
+    return checker
+
+
+@router.get("/ops/status", response_model=OpsStatus)
+def ops_status(db: Session = Depends(get_db),
+               user: User = Depends(require_any_permission(Perm.SOURCE_MANAGE, Perm.AUDIT_READ))):
+    """Versión desplegada, esquema, almacenamiento, worker, fuentes y trabajos recientes. Solo hechos, sin secretos."""
+    return OpsStatus.model_validate(dashboard.ops_status(db, user.organization_id))
