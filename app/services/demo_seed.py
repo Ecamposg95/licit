@@ -1,8 +1,9 @@
 """Bootstrap de organización, fuentes y usuarios, y reinicio determinista del demo.
 
 `reset_demo` borra y vuelve a crear sólo datos SYNTHETIC e HISTORICAL de la
-organización. Nunca toca registros REAL. Los IDs se derivan con uuid5 del
-código del fixture, así que un reinicio produce exactamente los mismos IDs.
+organización. Nunca toca registros REAL ni la bitácora: cada reinicio abre una
+corrida demo nueva (`DemoRun`). Los IDs se derivan con uuid5 del código del
+fixture, así que un reinicio produce exactamente los mismos IDs.
 """
 import json
 import uuid
@@ -18,7 +19,7 @@ from app.core import config
 from app.core.permissions import Role
 from app.core.security import get_password_hash
 from app.models import (
-    AuditEvent, DataKind, Document, DocumentVersion, EvidenceLink, Lot, Opportunity, Organization,
+    DataKind, DemoRun, Document, DocumentVersion, EvidenceLink, Lot, Opportunity, Organization,
     Product, Requirement, Source, SourceStatus, Task, User, UserRole, Variant,
 )
 from app.services import audit
@@ -36,6 +37,11 @@ def stable_id(org_id: str, code: str) -> str:
 
 def normalize_external_id(raw: str) -> str:
     return "".join(ch for ch in raw.upper() if ch.isalnum())
+
+
+def current_demo_run_id(db: Session, org_id: str) -> str | None:
+    return db.scalar(select(DemoRun.id).where(DemoRun.organization_id == org_id)
+                     .order_by(DemoRun.started_at.desc(), DemoRun.id.desc()).limit(1))
 
 
 # ── Bootstrap ────────────────────────────────────────────────────────────────
@@ -160,9 +166,6 @@ def _purge(db: Session, org_id: str) -> None:
     db.execute(delete(Opportunity).where(Opportunity.id.in_(opp_ids)))
     db.execute(delete(Variant).where(Variant.id.in_(var_ids)))
     db.execute(delete(Product).where(Product.id.in_(prod_ids)))
-    touched = opp_ids + doc_ids + prod_ids + req_ids + lot_ids + task_ids + var_ids
-    if touched:
-        db.execute(delete(AuditEvent).where(AuditEvent.resource_id.in_(touched)))
     db.flush()
 
 
@@ -348,6 +351,9 @@ def _seed_tasks(db: Session, org_id: str, tasks: list[dict], extra: dict, reqs: 
 def reset_demo(db: Session, org: Organization, actor_id: str | None) -> dict:
     base, extra = _load()
     sources = {s.key: s for s in db.scalars(select(Source).where(Source.organization_id == org.id))}
+    run = DemoRun(organization_id=org.id, actor_id=actor_id)
+    db.add(run)
+    db.flush()
     _purge(db, org.id)
     variants = _seed_catalog(db, org.id, base["products"])
     _seed_historical(db, org.id, base["historical_references"], sources)
@@ -361,6 +367,7 @@ def reset_demo(db: Session, org: Organization, actor_id: str | None) -> dict:
         "scenarios": len(opps), "documents": len(docs), "requirements": len(reqs),
         "tasks": len(base["tasks"]),
     }
+    run.summary = summary
     audit.record(db, organization_id=org.id, actor_id=actor_id, action="demo.reset",
                  resource_type="organization", resource_id=org.id, after=summary)
     db.flush()

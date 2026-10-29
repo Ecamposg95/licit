@@ -23,10 +23,21 @@ def run_migrations_offline() -> None:
 
 def run_migrations_online() -> None:
     with engine.connect() as connection:
+        sqlite = connection.dialect.name == "sqlite"
+        if sqlite:
+            # El modo batch recrea tablas en SQLite; con las FKs activas, el DROP TABLE de la tabla
+            # original dispararía ON DELETE CASCADE sobre sus hijas (o fallaría por NO ACTION).
+            connection.exec_driver_sql("PRAGMA foreign_keys=OFF")
+            connection.commit()
         # render_as_batch: ALTERs compatibles con SQLite (tests/local).
         context.configure(connection=connection, target_metadata=target_metadata, render_as_batch=True)
-        with context.begin_transaction():
-            context.run_migrations()
+        try:
+            with context.begin_transaction():
+                context.run_migrations()
+        finally:
+            if sqlite:
+                connection.exec_driver_sql("PRAGMA foreign_keys=ON")
+                connection.commit()
 
 
 if context.is_offline_mode():

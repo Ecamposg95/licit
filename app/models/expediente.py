@@ -2,7 +2,7 @@
 import enum
 
 from sqlalchemy import (
-    JSON, Boolean, Column, Date, DateTime, ForeignKey, Integer, String, Text,
+    DDL, JSON, Boolean, Column, Date, DateTime, ForeignKey, Integer, String, Text, event,
 )
 from sqlalchemy.orm import relationship
 
@@ -26,6 +26,9 @@ class Document(OrgScoped, Base):
     product_id = Column(String(36), ForeignKey("products.id"))
     opportunity_id = Column(String(36), ForeignKey("opportunities.id"))
     current_version = Column(Integer, nullable=False, default=1)
+    external_url = Column(String(1000))
+    third_party = Column(Boolean, nullable=False, default=False)   # documento de tercero: sólo se enlaza
+    page_count = Column(Integer)
 
     owner = relationship("User", lazy="joined")
     versions = relationship("DocumentVersion", cascade="all, delete-orphan",
@@ -101,6 +104,7 @@ class EvidenceLink(OrgScoped, Base):
     reviewer_id = Column(String(36), ForeignKey("users.id"))
     reviewed_at = Column(DateTime(timezone=True))
     reason = Column(Text)
+    created_by_id = Column(String(36), ForeignKey("users.id"))
 
     document = relationship("Document", lazy="joined")
 
@@ -135,5 +139,25 @@ class AuditEvent(Base):
     after = Column(JSON)
     correlation_id = Column(String(40))
     created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow, index=True)
+    demo_run_id = Column(String(36), ForeignKey("demo_runs.id"), index=True)
+    # Cadena SHA-256 por organización (services.audit.compute_event_hash).
+    prev_hash = Column(String(64))
+    hash = Column(String(64), nullable=False)
 
     actor = relationship("User", lazy="joined")
+
+
+# En Postgres la bitácora es de solo inserción. La migración crea lo mismo; esto cubre create_all (pruebas).
+AUDIT_IMMUTABLE_FUNCTION = """
+CREATE OR REPLACE FUNCTION audit_events_immutable() RETURNS trigger AS $$
+BEGIN
+    RAISE EXCEPTION 'audit_events es de solo inserción';
+END;
+$$ LANGUAGE plpgsql
+"""
+AUDIT_IMMUTABLE_TRIGGER = """
+CREATE TRIGGER audit_events_immutable BEFORE UPDATE OR DELETE ON audit_events
+FOR EACH ROW EXECUTE FUNCTION audit_events_immutable()
+"""
+for _ddl in (AUDIT_IMMUTABLE_FUNCTION, AUDIT_IMMUTABLE_TRIGGER):
+    event.listen(AuditEvent.__table__, "after_create", DDL(_ddl).execute_if(dialect="postgresql"))

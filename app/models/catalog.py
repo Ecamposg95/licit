@@ -1,4 +1,4 @@
-from sqlalchemy import JSON, Column, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Column, Date, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
@@ -15,6 +15,15 @@ class Product(OrgScoped, Base):
     description = Column(Text)
     data_kind = Column(String(12), nullable=False, index=True)
     review_status = Column(String(20), nullable=False, default="pendiente")
+    line = Column(String(80))
+    subfamily = Column(String(200))
+    external_ref = Column(String(200), index=True)       # id de la ficha en el catálogo de origen
+    source_url = Column(String(1000))
+    checked_on = Column(Date)
+    attribution = Column(String(255))
+    images = Column(JSON, nullable=False, default=list)
+    features = Column(JSON, nullable=False, default=list)
+    data_quality_notes = Column(JSON, nullable=False, default=list)
 
     variants = relationship("Variant", back_populates="product", cascade="all, delete-orphan",
                             order_by="Variant.sku", lazy="selectin")
@@ -36,5 +45,8 @@ class Variant(OrgScoped, Base):
     regulatory_reference = Column(String(120))
     data_kind = Column(String(12), nullable=False, index=True)
     review_status = Column(String(20), nullable=False, default="pendiente")
+    side = Column(String(20))                            # izquierda | derecha | null
+    source_text = Column(Text)
+    field_provenance = Column(JSON, nullable=False, default=dict)
 
     product = relationship("Product", back_populates="variants")

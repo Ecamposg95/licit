@@ -102,6 +102,9 @@ class Lot(OrgScoped, Base):
     # Especificaciones exigidas: {"holes": {"value": 6, "unit": "orificios", "operator": "eq"}, ...}
     specs = Column(JSON, nullable=False, default=dict)
     proposed_variant_id = Column(String(36), ForeignKey("variants.id"))
+    unit_price = Column(Numeric(14, 2))
+    currency = Column(String(3))
+    price_data_kind = Column(String(12))                 # procedencia del precio, independiente de la partida
 
     opportunity = relationship("Opportunity", back_populates="lots")
     proposed_variant = relationship("Variant", lazy="joined")

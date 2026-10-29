@@ -19,6 +19,7 @@ from app.schemas.v1 import (
     OpportunityRow, Page, RequirementRow, SourceRef, TaskOut, UserRef,
 )
 from app.services import audit
+from app.services.demo_seed import current_demo_run_id
 from app.services.status import derive_status
 
 router = APIRouter(prefix="/api/v1/opportunities", tags=["oportunidades"])
@@ -205,8 +206,10 @@ def opportunity_history(opportunity_id: str, db: Session = Depends(get_db),
     ids = [opp.id]
     ids += list(db.scalars(select(Requirement.id).where(Requirement.opportunity_id == opp.id)))
     ids += list(db.scalars(select(Task.id).where(Task.opportunity_id == opp.id)))
+    # Sólo la corrida demo actual: los ensayos previos siguen en la bitácora global.
     events = db.scalars(select(AuditEvent).where(
-        AuditEvent.organization_id == user.organization_id, AuditEvent.resource_id.in_(ids))
+        AuditEvent.organization_id == user.organization_id, AuditEvent.resource_id.in_(ids),
+        AuditEvent.demo_run_id == current_demo_run_id(db, user.organization_id))
         .order_by(AuditEvent.created_at.desc())).unique()
     return [AuditOut(id=e.id, actor=_user_ref(e.actor), action=e.action, resource_type=e.resource_type,
                      resource_id=e.resource_id, before=e.before, after=e.after,

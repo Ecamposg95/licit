@@ -8,3 +8,7 @@ from app.models.catalog import Product, Variant  # noqa: F401
 from app.models.expediente import (  # noqa: F401
     AuditEvent, Document, DocumentVersion, EvidenceLink, Requirement, RequirementStatus, Task,
 )
+from app.models.workflow import (  # noqa: F401
+    BidWorkspace, DemoRun, GeneratedArtifact, Job, JobStatus, MatchAssessment, OpportunityEvidence,
+    SearchRun, SearchRunStatus,
+)
