@@ -11,6 +11,9 @@ import { listOpportunities, listProducts, listSources } from '@/lib/api'
 import { MX_STATES, procedureTypeLabel } from '@/lib/labels'
 import { useApi } from '@/lib/useApi'
 import type { OpportunityRow, SourceOut } from '@/lib/types'
+import { useCan } from '@/store/auth'
+import ImportDialog from './radar/ImportDialog'
+import SearchDialog from './radar/SearchDialog'
 
 const PAGE_SIZE = 25
 /** Familias del diccionario inicial (task pack §6); se amplían con el catálogo y los resultados. */
@@ -51,7 +54,8 @@ function OpportunityRowView({ o }: { o: OpportunityRow }) {
         {synthetic && <span aria-hidden="true" className="hatch-synthetic absolute inset-y-0 left-0 w-1" />}
         <Link
           to={`/oportunidades/${o.id}`}
-          className="font-medium text-slate-900 underline-offset-2 hover:text-petrol-700 hover:underline"
+          title={o.title}
+          className="line-clamp-3 font-medium text-slate-900 underline-offset-2 hover:text-petrol-700 hover:underline"
         >
           {o.title}
         </Link>
@@ -94,7 +98,7 @@ function OpportunityRowView({ o }: { o: OpportunityRow }) {
             rel="noopener noreferrer"
             className="mt-1 inline-flex items-center gap-1 font-medium text-petrol-700 hover:underline"
           >
-            Abrir fuente
+            {o.source?.key === 'dof_sidof' ? 'Ver nota oficial' : 'Abrir fuente'}
             <ExternalLink aria-hidden="true" className="h-3 w-3" />
             <span className="sr-only">(se abre en una pestaña nueva)</span>
           </a>
@@ -163,6 +167,15 @@ export default function Radar() {
     !noKinds,
   )
   const sources = useApi(listSources, [])
+  const canSearch = useCan('search.run')
+  const canImport = useCan('opportunity.import')
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
+  const showReal = () => {
+    setKinds(['REAL'])
+    result.reload()
+    sources.reload()
+  }
   const products = useApi(() => listProducts({}), [])
 
   const [seenFamilies, setSeenFamilies] = useState<string[]>([])
@@ -198,16 +211,30 @@ export default function Radar() {
         description="Procedimientos con su fuente y última comprobación. Los tipos de dato se filtran por separado y la selección se conserva."
         actions={
           <>
-            <UnavailableAction
-              label="Importar"
-              icon={<FileUp aria-hidden="true" className="h-4 w-4" />}
-              reason="Importación de URL o documento oficial: próxima entrega (E2)"
-            />
-            <UnavailableAction
-              label="Buscar ahora"
-              icon={<Search aria-hidden="true" className="h-4 w-4" />}
-              reason="Búsqueda en vivo en DOF/SIDOF: próxima entrega (E2)"
-            />
+            {canImport ? (
+              <button type="button" className="btn-secondary" onClick={() => setImportOpen(true)}>
+                <FileUp aria-hidden="true" className="h-4 w-4" />
+                Importar
+              </button>
+            ) : (
+              <UnavailableAction
+                label="Importar"
+                icon={<FileUp aria-hidden="true" className="h-4 w-4" />}
+                reason="Tu rol no tiene el permiso opportunity.import"
+              />
+            )}
+            {canSearch ? (
+              <button type="button" className="btn-primary" onClick={() => setSearchOpen(true)}>
+                <Search aria-hidden="true" className="h-4 w-4" />
+                Buscar ahora
+              </button>
+            ) : (
+              <UnavailableAction
+                label="Buscar ahora"
+                icon={<Search aria-hidden="true" className="h-4 w-4" />}
+                reason="Tu rol no tiene el permiso search.run"
+              />
+            )}
           </>
         }
       />
@@ -334,7 +361,7 @@ export default function Radar() {
         ) : result.data && result.data.items.length === 0 ? (
           <EmptyState title="Sin resultados para estos filtros" icon={<SearchX className="h-8 w-8" strokeWidth={1.5} />}>
             {onlyReal
-              ? 'No hay oportunidades reales registradas con estos filtros. La consulta en vivo a fuentes oficiales llega en la próxima entrega; no se muestran datos ficticios en su lugar.'
+              ? 'No hay oportunidades reales registradas con estos filtros. Usa «Buscar ahora» para consultar SIDOF en vivo; no se muestran datos ficticios en su lugar.'
               : 'Ajusta o limpia los filtros. No se completan resultados con datos ficticios.'}
           </EmptyState>
         ) : result.data ? (
@@ -373,6 +400,19 @@ export default function Radar() {
           </>
         ) : null}
       </section>
+
+      {canSearch && (
+        <SearchDialog
+          open={searchOpen}
+          onClose={() => setSearchOpen(false)}
+          onFinished={showReal}
+          onOpenImport={() => {
+            setSearchOpen(false)
+            setImportOpen(true)
+          }}
+        />
+      )}
+      {canImport && <ImportDialog open={importOpen} onClose={() => setImportOpen(false)} onImported={showReal} />}
     </div>
   )
 }
