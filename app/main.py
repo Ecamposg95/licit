@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 import app.models  # noqa: F401  registra todas las tablas en Base.metadata
 from app.core import config, errors
-from app.routers import auth, jobs as jobs_router, opportunities, resources
+from app.routers import auth, catalog, jobs as jobs_router, opportunities, resources
 from app.services import jobs
 
 
@@ -38,6 +38,7 @@ errors.install(app)
 app.include_router(auth.router)
 app.include_router(opportunities.router)
 app.include_router(resources.router)
+app.include_router(catalog.router)
 app.include_router(jobs_router.router)
 
 

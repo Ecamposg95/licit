@@ -27,6 +27,8 @@ CATALOG_PATH = FIXTURES / "catalogo_dipromedic.json"
 ATTRIBUTION = "DIPROMEDIC S.A. DE C.V. · www.dipromedic.com"
 SKU_PREFIX = "DPM-"
 SIDES = ("izquierda", "derecha")
+# Atributos que salen de la fila de la tabla (no de la ficha): cambian de una variante a otra.
+ROW_ATTRIBUTES = ("holes", "diameter_mm", "length_mm")
 
 # Letras cirílicas que se ven igual que las latinas (el sitio trae tres códigos con ellas).
 _CYRILLIC_TO_LATIN = str.maketrans({
@@ -88,11 +90,11 @@ def _row_attributes(row: dict, attrs: dict) -> list[str]:
     Devuelve los atributos que la fila declara pero no puede citar (no se cargan).
     """
     quote = row.get("source_text")
-    pending = {
-        "holes": (_as_list(row.get("orificios")), "orificios"),
-        "diameter_mm": (_as_list(row.get("diametros_mm", row.get("diametro_mm"))), "mm"),
-        "length_mm": (_as_list(row.get("longitudes_mm", row.get("longitud_mm"))), "mm"),
-    }
+    pending = dict(zip(ROW_ATTRIBUTES, (
+        (_as_list(row.get("orificios")), "orificios"),
+        (_as_list(row.get("diametros_mm", row.get("diametro_mm"))), "mm"),
+        (_as_list(row.get("longitudes_mm", row.get("longitud_mm"))), "mm"),
+    )))
     uncited = []
     for key, (values, unit) in pending.items():
         if not values:
