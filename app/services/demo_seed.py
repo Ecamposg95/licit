@@ -6,6 +6,7 @@ corrida demo nueva (`DemoRun`). Los IDs se derivan con uuid5 del código del
 fixture, así que un reinicio produce exactamente los mismos IDs.
 """
 import json
+import logging
 import uuid
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
@@ -22,7 +23,9 @@ from app.models import (
     DataKind, DemoRun, Document, DocumentVersion, EvidenceLink, Lot, Opportunity, Organization,
     Product, Requirement, Source, SourceStatus, Task, User, UserRole, Variant,
 )
-from app.services import audit
+from app.services import audit, demo_documents
+
+log = logging.getLogger(__name__)
 
 FIXTURES = Path(__file__).resolve().parent.parent / "fixtures"
 MX = ZoneInfo("America/Mexico_City")
@@ -119,6 +122,15 @@ def bootstrap(db: Session) -> Organization:
     ensure_users(db, org)
     if db.scalar(select(Opportunity.id).where(Opportunity.organization_id == org.id).limit(1)) is None:
         reset_demo(db, org, actor_id=None)
+    if config.IMPORT_CATALOG and db.scalar(select(Product.id).where(
+            Product.organization_id == org.id, Product.data_kind == DataKind.REAL.value).limit(1)) is None:
+        from app.services import catalog_import  # catalog_import importa este módulo
+        catalog_import.log_summary(catalog_import.import_catalog(db, org.id, catalog_import.CATALOG_PATH))
+    try:
+        # Con disco efímero (sin bucket) los archivos semilla desaparecen en cada despliegue; se reponen.
+        demo_documents.ensure_demo_files(db, org.id)
+    except Exception:  # noqa: BLE001 - el almacenamiento no debe impedir el arranque
+        log.warning("No se pudieron reponer los archivos semilla", exc_info=True)
     db.commit()
     return org
 
@@ -142,7 +154,8 @@ def _offset(days: int | None) -> date | None:
     return None if days is None else config.DEMO_BASE_DATE + timedelta(days=days)
 
 
-def _purge(db: Session, org_id: str) -> None:
+def _purge(db: Session, org_id: str) -> list[str]:
+    """Borra los datos SYNTHETIC e HISTORICAL. Devuelve las claves de almacenamiento de sus archivos."""
     opp_ids = list(db.scalars(select(Opportunity.id).where(
         Opportunity.organization_id == org_id, Opportunity.data_kind.in_(_DEMO_KINDS))))
     doc_ids = list(db.scalars(select(Document.id).where(
@@ -154,6 +167,8 @@ def _purge(db: Session, org_id: str) -> None:
     task_ids = list(db.scalars(select(Task.id).where(
         Task.organization_id == org_id, Task.data_kind.in_(_DEMO_KINDS))))
     var_ids = list(db.scalars(select(Variant.id).where(Variant.product_id.in_(prod_ids))))
+    stored_keys = list(db.scalars(select(DocumentVersion.storage_key).where(
+        DocumentVersion.document_id.in_(doc_ids), DocumentVersion.storage_key.is_not(None))))
 
     db.execute(delete(EvidenceLink).where(EvidenceLink.requirement_id.in_(req_ids)))
     db.execute(delete(EvidenceLink).where(EvidenceLink.document_id.in_(doc_ids)))
@@ -167,6 +182,7 @@ def _purge(db: Session, org_id: str) -> None:
     db.execute(delete(Variant).where(Variant.id.in_(var_ids)))
     db.execute(delete(Product).where(Product.id.in_(prod_ids)))
     db.flush()
+    return stored_keys
 
 
 def _product_base_name(name: str) -> str:
@@ -286,13 +302,14 @@ def _seed_documents(db: Session, org_id: str, docs: list[dict], extra: dict,
             product_id=variant.product_id if variant else None, opportunity_id=opp.id if opp else None,
             current_version=d.get("version", 1),
         )
-        # Sólo metadatos: el archivo se produce y carga en E2/E3 con la marca DEMO.
         doc.versions.append(DocumentVersion(
             id=stable_id(org_id, f"{d['id']}:v{doc.current_version}"), organization_id=org_id,
             version=doc.current_version, note="Versión semilla sin archivo adjunto.",
         ))
         db.add(doc)
         out[d["id"]] = doc
+    # Cada documento SYNTHETIC lleva su PDF de prueba con la marca DEMO (D4); el hash queda en la versión.
+    demo_documents.attach_demo_files(org_id, out, extra, {sku: v.attributes for sku, v in variants.items()})
     db.flush()
     return out
 
@@ -354,13 +371,16 @@ def reset_demo(db: Session, org: Organization, actor_id: str | None) -> dict:
     run = DemoRun(organization_id=org.id, actor_id=actor_id)
     db.add(run)
     db.flush()
-    _purge(db, org.id)
+    old_keys = _purge(db, org.id)
     variants = _seed_catalog(db, org.id, base["products"])
     _seed_historical(db, org.id, base["historical_references"], sources)
     opps = _seed_scenarios(db, org.id, base["scenarios"], extra, variants, sources)
     docs = _seed_documents(db, org.id, base["document_metadata"], extra, variants, opps)
     reqs = _seed_requirements(db, org.id, extra, opps, docs)
     _seed_tasks(db, org.id, base["tasks"], extra, reqs)
+    # Los archivos SYNTHETIC anteriores (semilla y cargas de prueba) se borran al confirmar el reinicio.
+    kept = {v.storage_key for d in docs.values() for v in d.versions if v.storage_key}
+    demo_documents.delete_after_commit(db, [k for k in old_keys if k not in kept])
     summary = {
         "demo_base_date": config.DEMO_BASE_DATE.isoformat(),
         "variants": len(variants), "historical": len(base["historical_references"]),

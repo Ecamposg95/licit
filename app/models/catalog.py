@@ -24,6 +24,8 @@ class Product(OrgScoped, Base):
     images = Column(JSON, nullable=False, default=list)
     features = Column(JSON, nullable=False, default=list)
     data_quality_notes = Column(JSON, nullable=False, default=list)
+    # Atributos de la ficha, cada uno {value, unit, source_text} con la cita literal de la página.
+    attributes = Column(JSON, nullable=False, default=dict, server_default="{}")
 
     variants = relationship("Variant", back_populates="product", cascade="all, delete-orphan",
                             order_by="Variant.sku", lazy="selectin")

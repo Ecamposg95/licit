@@ -58,7 +58,9 @@ def record(db: Session, *, organization_id: str, actor_id: str | None, action: s
     # Lo pendiente en la sesión (eventos previos, una corrida demo nueva) debe verse en las consultas.
     db.flush()
     if db.get_bind().dialect.name == "postgresql":
-        # Serializa la cadena de la organización hasta que termine la transacción.
+        # Serializa la cadena de la organización hasta que termine la transacción. Si otra transacción
+        # olvidó cerrarse, falla en 5 s (lock_not_available) en lugar de quedarse esperando para siempre.
+        db.execute(text("SET LOCAL lock_timeout = '5s'"))
         db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:org))"), {"org": organization_id})
     last = db.execute(
         select(AuditEvent.hash, AuditEvent.created_at)

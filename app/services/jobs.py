@@ -6,9 +6,10 @@ registrado para su `kind`. Los módulos que definen handlers los registran al im
 """
 import logging
 import threading
+from datetime import timedelta
 from typing import Callable
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.orm import Session
 
@@ -23,7 +24,8 @@ Handler = Callable[[Session, Job], dict | None]
 _HANDLERS: dict[str, Handler] = {}
 
 _STOP_TIMEOUT_SECONDS = 10.0
-_stop = threading.Event()
+STALE_ERROR = "Interrumpido: el proceso se reinició antes de terminar"
+_stop = threading.Event()          # señal de paro del hilo vigente; cada hilo nuevo recibe la suya
 _thread: threading.Thread | None = None
 
 
@@ -56,7 +58,7 @@ def enqueue(db: Session, *, organization_id: str, kind: str, payload: dict, crea
             idempotency_key=idempotency_key,
         ).on_conflict_do_nothing(index_elements=["idempotency_key"]))
         job = _by_key(db, idempotency_key)
-    if job.organization_id != organization_id:
+    if job.organization_id != organization_id or job.kind != kind:
         raise AppError(409, "idempotency_conflict", "La clave de idempotencia ya se usó para otro trabajo")
     return job
 
@@ -103,8 +105,25 @@ def run_pending_once(db: Session) -> Job | None:
     return job
 
 
-def _loop(poll_seconds: float) -> None:
-    while not _stop.is_set():
+def recover_stale_jobs(db: Session, older_than: timedelta = timedelta(minutes=10)) -> int:
+    """Marca como `failed` los trabajos `running` iniciados hace más de `older_than` y devuelve cuántos.
+
+    Un trabajo que sigue en `running` cuando arranca el worker quedó huérfano: el proceso que lo
+    ejecutaba se reinició (deploy, caída). Hace commit.
+    """
+    now = utcnow()
+    result = db.execute(
+        update(Job)
+        .where(Job.status == JobStatus.RUNNING.value, Job.started_at < now - older_than)
+        .values(status=JobStatus.FAILED.value, error=STALE_ERROR, finished_at=now)
+        .execution_options(synchronize_session=False)      # el commit expira lo que la sesión tenga cargado
+    )
+    db.commit()
+    return result.rowcount
+
+
+def _loop(poll_seconds: float, stop: threading.Event) -> None:
+    while not stop.is_set():
         db = SessionLocal()
         try:
             job = run_pending_once(db)
@@ -114,17 +133,37 @@ def _loop(poll_seconds: float) -> None:
         finally:
             db.close()
         if job is None:
-            _stop.wait(poll_seconds)
+            stop.wait(poll_seconds)
 
 
 def start_worker(poll_seconds: float = 1.0) -> threading.Thread:
-    global _thread
+    global _thread, _stop
     if _thread is not None and _thread.is_alive():
-        return _thread
-    _stop.clear()
-    _thread = threading.Thread(target=_loop, args=(poll_seconds,), name="jobs-worker", daemon=True)
+        if not _stop.is_set():
+            return _thread
+        # `stop_worker` agotó su espera y el hilo sigue en un handler: se le da un margen para
+        # terminar y, si no termina, se reemplaza. Conserva su propia señal de paro, así que sale
+        # en cuanto el handler vuelva y no compite con el hilo nuevo.
+        _thread.join(timeout=_STOP_TIMEOUT_SECONDS)
+    if _thread is None or not _thread.is_alive():
+        # Con un hilo anterior aún dentro de un handler, su trabajo `running` no está huérfano.
+        _recover_at_startup()
+    _stop = threading.Event()
+    _thread = threading.Thread(target=_loop, args=(poll_seconds, _stop), name="jobs-worker", daemon=True)
     _thread.start()
     return _thread
+
+
+def _recover_at_startup() -> None:
+    db = SessionLocal()
+    try:
+        recovered = recover_stale_jobs(db)
+        if recovered:
+            logger.warning("%d trabajo(s) interrumpido(s) por un reinicio quedaron como fallidos", recovered)
+    except Exception:
+        logger.exception("No se pudieron recuperar los trabajos interrumpidos")
+    finally:
+        db.close()
 
 
 def stop_worker() -> None:

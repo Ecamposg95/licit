@@ -1,4 +1,5 @@
 """Licit — demo comercial de licitaciones públicas (white label · Dipromedic · Demo)."""
+import asyncio
 import os
 from contextlib import asynccontextmanager
 
@@ -9,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 
 import app.models  # noqa: F401  registra todas las tablas en Base.metadata
 from app.core import config, errors
-from app.routers import auth, jobs as jobs_router, opportunities, resources
+from app.routers import auth, catalog, documents, jobs as jobs_router, opportunities, resources
 from app.routers import search as search_router
 from app.services import jobs
 
@@ -20,7 +21,8 @@ async def lifespan(_app: FastAPI):
     if config.JOBS_WORKER:
         jobs.start_worker()
     yield
-    jobs.stop_worker()
+    # stop_worker espera hasta 10 s al trabajo en curso: fuera del event loop para no congelarlo.
+    await asyncio.to_thread(jobs.stop_worker)
 
 
 app = FastAPI(title="Licit · Dipromedic Demo API", version="1.0.0", lifespan=lifespan)
@@ -39,7 +41,9 @@ errors.install(app)
 app.include_router(auth.router)
 app.include_router(opportunities.router)
 app.include_router(resources.router)
+app.include_router(catalog.router)
 app.include_router(jobs_router.router)
+app.include_router(documents.router)
 app.include_router(search_router.router)
 
 

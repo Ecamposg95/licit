@@ -4793,7 +4793,7 @@
               "source_text": "Código 262 | 8, 9, 10, 11, 12, 13 y 14mm",
               "codes": {
                 "unica": [
-                  "igo"
+                  "262"
                 ]
               },
               "diametros_mm": [
@@ -4809,7 +4809,7 @@
           ],
           "accessories": [],
           "codes": [
-            "igo"
+            "262"
           ],
           "images": [
             "https://www.dipromedic.com/assets/img/products/traufix/pictures/tarfix-tornillo-subtalar-1.png"
@@ -4840,7 +4840,9 @@
           "page_url": "https://www.dipromedic.com/traufix/otras-soluciones/tarfix",
           "listed_on_category_page": true,
           "ribbon": null,
-          "data_quality_notes": []
+          "data_quality_notes": [
+            "El código de la fila de la tabla venía extraído como 'igo' (parte de la palabra 'Código'); se corrigió a '262' porque la cita de la propia página dice 'Código 262 | 8, 9, 10, 11, 12, 13 y 14mm'. Corrección del 2026-10-29 sobre la extracción del 2026-10-28."
+          ]
         },
         {
           "id": "traufix-com_intralock-humero",

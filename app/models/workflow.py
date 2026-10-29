@@ -88,6 +88,8 @@ class MatchAssessment(OrgScoped, Base):
     explanation = Column(Text, nullable=False)
     rule = Column(String(80), nullable=False)
     engine_version = Column(String(20), nullable=False)
+    catalog_value = Column(Text)      # lo que dice el catálogo, citado en la evaluación
+    source_text = Column(Text)        # texto de la fuente (ficha o bases) del que sale ese valor
 
 
 class BidWorkspace(OrgScoped, Base):

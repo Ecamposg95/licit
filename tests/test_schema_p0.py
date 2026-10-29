@@ -3,6 +3,7 @@ import hashlib
 import json
 import subprocess
 import sys
+import time
 
 import pytest
 from sqlalchemy import create_engine, func, select, text
@@ -10,7 +11,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal, engine
-from app.models import AuditEvent, DemoRun, Organization
+from app.models import AuditEvent, DemoRun, Lot, MatchAssessment, Organization
 from app.services import audit
 from app.services.demo_seed import current_demo_run_id, reset_demo
 
@@ -87,6 +88,29 @@ def test_audit_immutable_in_postgres():
         db.execute(text("DELETE FROM audit_events"))
     db.rollback()
     db.close()
+
+
+def test_audit_record_fails_fast_when_org_lock_is_held():
+    if engine.dialect.name != "postgresql":
+        pytest.skip("El bloqueo por organización existe sólo en Postgres")
+    db = SessionLocal()
+    org_id = _org(db).id
+    holder = engine.connect()           # conexión A: retiene el bloqueo de la organización
+    try:
+        holder.execute(text("SELECT pg_advisory_xact_lock(hashtext(:org))"), {"org": org_id})
+        # Red de seguridad de la prueba: sin lock_timeout, record() quedaría esperando para siempre.
+        db.execute(text("SET LOCAL statement_timeout = '15s'"))
+        started = time.monotonic()
+        with pytest.raises(DBAPIError) as exc:
+            _record(db, org_id, "test.bloqueado")
+        elapsed = time.monotonic() - started
+        assert getattr(exc.value.orig, "pgcode", None) == "55P03"      # lock_not_available
+        assert 4 < elapsed < 10
+    finally:
+        db.rollback()
+        db.close()
+        holder.rollback()
+        holder.close()
 
 
 # ── Corridas demo ────────────────────────────────────────────────────────────
@@ -182,3 +206,29 @@ def test_migration_backfills_existing_rows(tmp_path):
         assert new.prev_hash == s.scalar(text("SELECT hash FROM audit_events WHERE id = 'e1'"))
         assert audit.verify_chain(s, "org") == (True, 3, None)
     legacy.dispose()
+
+
+# ── Evaluaciones con la cita del catálogo ────────────────────────────────────
+
+def test_match_assessment_stores_catalog_citation():
+    db = SessionLocal()
+    lot = db.scalars(select(Lot)).first()
+    db.add(MatchAssessment(organization_id=lot.organization_id, opportunity_id=lot.opportunity_id, lot_id=lot.id,
+                           result="cumple", explanation="Coincide", rule="r1", engine_version="1",
+                           catalog_value="Titanio grado 5", source_text="Placa en titanio grado 5"))
+    db.add(MatchAssessment(organization_id=lot.organization_id, opportunity_id=lot.opportunity_id, lot_id=lot.id,
+                           result="desconocido", explanation="Sin dato", rule="r1", engine_version="1"))
+    db.commit()
+    db.close()
+
+    db = SessionLocal()
+    cited, bare = db.scalars(select(MatchAssessment).order_by(MatchAssessment.result)).all()
+    assert (cited.catalog_value, cited.source_text) == ("Titanio grado 5", "Placa en titanio grado 5")
+    assert (bare.catalog_value, bare.source_text) == (None, None)
+    db.close()
+
+
+def test_migrations_match_the_models(tmp_path):
+    url = f"sqlite:///{tmp_path}/head.db"
+    _alembic(url, "upgrade", "head")
+    _alembic(url, "check")          # falla si los modelos tienen cambios sin migración
