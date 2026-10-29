@@ -12,9 +12,10 @@ import { useAuth, useCan } from '@/store/auth'
 import SummaryTab from '@/pages/opportunity/SummaryTab'
 import LotsTab from '@/pages/opportunity/LotsTab'
 import RequirementsTab from '@/pages/opportunity/RequirementsTab'
+import ExpedienteTab from '@/pages/opportunity/ExpedienteTab'
 import { DocumentsTab, HistoryTab, TasksTab } from '@/pages/opportunity/RelatedTabs'
 
-const TAB_IDS = ['resumen', 'partidas', 'requisitos', 'documentos', 'actividades', 'historial'] as const
+const TAB_IDS = ['resumen', 'partidas', 'requisitos', 'documentos', 'actividades', 'expediente', 'historial'] as const
 type TabId = (typeof TAB_IDS)[number]
 
 function Header({ o }: { o: Detail }) {
@@ -119,6 +120,7 @@ export default function OpportunityDetail() {
     { id: 'requisitos', label: 'Requisitos', count: reqTotal },
     { id: 'documentos', label: 'Documentos' },
     { id: 'actividades', label: 'Actividades' },
+    { id: 'expediente', label: 'Expediente' },
     { id: 'historial', label: 'Historial' },
   ]
 
@@ -141,6 +143,7 @@ export default function OpportunityDetail() {
         {tab === 'documentos' &&
           (canDocs ? <DocumentsTab opportunityId={o.id} /> : <Forbidden permission="document.read" />)}
         {tab === 'actividades' && (canTasks ? <TasksTab opportunityId={o.id} /> : <Forbidden permission="task.read" />)}
+        {tab === 'expediente' && <ExpedienteTab opportunityId={o.id} />}
         {tab === 'historial' && <HistoryTab opportunityId={o.id} version={o.version} />}
       </Tabs>
     </div>
