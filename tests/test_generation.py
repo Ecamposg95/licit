@@ -184,7 +184,9 @@ def test_open_requirements_evidence_and_task_in_snapshot(db):
 def test_affinity_is_opaque_and_null_means_not_computed(db):
     opp = lic(db)
     snap = build_snapshot(db, opp)
-    assert snap["affinity"]["state"] == "no_calculada" and snap["workspace"] is None
+    assert snap["affinity"]["state"] == "no_calculada"
+    empty = snap["workspace"]          # sin espacio creado: los valores de uno recién abierto
+    assert empty["decision"] == "pendiente" and empty["technical_approval"] is None
     ws = BidWorkspace(organization_id=opp.organization_id, opportunity_id=opp.id,
                       affinity={"components": {"familia": 40}, "total": None, "coverage_complete": False,
                                 "blocking": ["documental"]})
@@ -194,7 +196,7 @@ def test_affinity_is_opaque_and_null_means_not_computed(db):
     aff = snap["affinity"]
     assert aff["state"] == "calculada" and aff["total"] is None and aff["coverage_complete"] is False
     assert aff["blocking"] == ["documental"] and aff["components"] == {"familia": 40}
-    assert snap["workspace"]["decision"] == "pendiente"
+    assert snap["workspace"] == empty        # crear el espacio vacío no cambia el contenido del borrador
 
 
 def test_assessments_are_read_when_present(db):
@@ -409,4 +411,155 @@ def test_xml_control_characters_do_not_break_rendering(db):
     db.expire_all()
     body = docx_parts(render_all(snapshot_of(db))["matriz"])["body"]
     assert "Placa de titanio" in body
+
+
+# ── F3 · paquete ZIP con manifiesto ──────────────────────────────────────────
+
+import csv  # noqa: E402
+
+import openpyxl  # noqa: E402
+
+from app.services.generation.package import build_package  # noqa: E402
+
+
+def make_package(db, snapshot=None):
+    snap = snapshot or snapshot_of(db)
+    data, manifest = build_package(snap, render_all(snap))
+    return snap, data, manifest
+
+
+def open_zip(data: bytes) -> zipfile.ZipFile:
+    return zipfile.ZipFile(io.BytesIO(data))
+
+
+def test_zip_layout(db):
+    snap, data, manifest = make_package(db)
+    names = open_zip(data).namelist()
+    assert sorted(n for n in names if n.startswith("docx/")) == [
+        "docx/01_resumen_oportunidad.docx", "docx/02_matriz_cumplimiento.docx", "docx/03_lista_faltantes.docx",
+        "docx/04_indice_expediente.docx", "docx/05_propuesta_tecnica_preliminar.docx",
+        "docx/06_propuesta_economica_demo.docx"]
+    assert {"matriz.csv", "matriz.xlsx", "README_PENDIENTES.md", "manifest.json"} <= set(names)
+    assert len(names) == 10 and len(set(names)) == 10
+
+
+def test_manifest_hashes_match(db):
+    snap, data, manifest = make_package(db)
+    zf = open_zip(data)
+    listed = {f["name"]: f for f in manifest["files"]}
+    assert set(listed) == set(zf.namelist()) - {"manifest.json"}      # el manifiesto no se lista a sí mismo
+    for name, entry in listed.items():
+        content = zf.read(name)
+        assert entry["sha256"] == hashlib.sha256(content).hexdigest(), name
+        assert entry["size_bytes"] == len(content), name
+    assert json.loads(zf.read("manifest.json").decode("utf-8")) == manifest
+    assert manifest["template_version"] == TEMPLATE_VERSION
+    assert manifest["generated_at"] == snap["generated_at"] and manifest["data_version"] == snap["data_version"]
+    assert manifest["opportunity"] == {"external_id": "DEMO-LIC-001", "data_kind": "SYNTHETIC"}
+    assert manifest["warnings"] == snap["warnings"] and manifest["notice"] == config.WATERMARK
+    assert set(manifest["provenance"]) == {"REAL", "SYNTHETIC", "HISTORICAL"}
+    assert manifest["provenance"]["SYNTHETIC"] > 0 and manifest["provenance"]["REAL"] == 0
+
+
+def test_zip_is_reproducible_from_the_same_inputs(db):
+    snap = snapshot_of(db)
+    rendered = render_all(snap)
+    first, _ = build_package(snap, rendered)
+    again, _ = build_package(snap, rendered)
+    # Mismas entradas, mismos bytes: ni la fecha de las entradas del ZIP ni el orden cambian.
+    assert hashlib.sha256(first).hexdigest() == hashlib.sha256(again).hexdigest()
+    dates = {i.date_time for i in open_zip(first).infolist()}
+    assert len(dates) == 1
+
+
+def test_provenance_counts_real_records(db):
+    opp = lic(db)
+    next(l for l in opp.lots if l.number == "2").proposed_variant_id = real_variant(db, opp.organization_id).id
+    db.flush()
+    db.expire_all()
+    _, _, manifest = make_package(db)
+    assert manifest["provenance"]["REAL"] == 1       # la variante REAL
+    assert manifest["provenance_detail"]["variants"] == {"REAL": 1, "SYNTHETIC": 2}
+
+
+def test_csv_utf8_bom_and_one_row_per_requirement(db):
+    snap, data, _ = make_package(db)
+    raw = open_zip(data).read("matriz.csv")
+    assert raw.startswith(b"\xef\xbb\xbf")
+    rows = list(csv.reader(io.StringIO(raw.decode("utf-8-sig"))))
+    assert rows[0][:3] == ["Código", "Partida", "Requisito"]
+    assert len(rows) - 1 == len(snap["requirements"])
+    assert all(r[-1] == config.WATERMARK for r in rows[1:])
+    by_code = {r[0]: r for r in rows[1:]}
+    assert "[PENDIENTE: evidencia vinculada]" in by_code["DEMO-REQ-005"]
+
+
+def test_xlsx_has_exact_money_and_watermark(db):
+    snap, data, _ = make_package(db)
+    wb = openpyxl.load_workbook(io.BytesIO(open_zip(data).read("matriz.xlsx")))
+    assert wb.sheetnames == ["Resumen", "Matriz", "Partidas"]
+    for ws in wb.worksheets:
+        assert ws["A1"].value == config.WATERMARK, ws.title
+    lots = wb["Partidas"]
+    header = [c.value for c in lots[3]]
+    assert header[:8] == ["Partida", "Descripción", "Cantidad", "Unidad", "Precio unitario", "Moneda", "Subtotal",
+                          "Origen del precio"]
+    row1 = [c.value for c in lots[4]]
+    assert row1[0] == "1" and Decimal(str(row1[2])) == Decimal("40") and Decimal(str(row1[4])) == Decimal("1500")
+    assert Decimal(str(row1[6])) == Decimal("60000.00") and row1[7].startswith("SIMULADO")
+    assert lots["G4"].number_format == "#,##0.00"
+    summary = {r[0].value: r[1].value for r in wb["Resumen"].iter_rows(min_row=3) if r[0].value}
+    assert summary["Versión de datos"] == snap["data_version"]
+    assert summary["Total"] == "Total: 162,000.00 MXN"
+
+
+def test_spreadsheet_formula_injection_is_neutralised(db):
+    req = db.scalars(select(Requirement).where(Requirement.code == "DEMO-REQ-001")).one()
+    req.text = '=HYPERLINK("http://x","clic")'
+    db.flush()
+    db.expire_all()
+    _, data, _ = make_package(db)
+    zf = open_zip(data)
+    rows = list(csv.reader(io.StringIO(zf.read("matriz.csv").decode("utf-8-sig"))))
+    assert next(r for r in rows if r[0] == "DEMO-REQ-001")[2].startswith("'=HYPERLINK(\"http://x\",\"clic\")")
+    wb = openpyxl.load_workbook(io.BytesIO(zf.read("matriz.xlsx")))
+    cell = next(r[2] for r in wb["Matriz"].iter_rows(min_row=4) if r[0].value == "DEMO-REQ-001")
+    assert cell.data_type == "s" and cell.value.startswith("'=")
+
+
+def test_readme_lists_pending(db):
+    snap, data, _ = make_package(db)
+    readme = open_zip(data).read("README_PENDIENTES.md").decode("utf-8")
+    assert config.WATERMARK in readme and "Borrador · no apto para presentación" in readme
+    assert snap["data_version"] in readme
+    for req in snap["requirements"]:
+        if req["open"]:
+            assert req["code"] in readme
+    for warning in snap["warnings"]:
+        assert warning in readme
+    assert "manifest.json" in readme
+    assert not re.search(r"\b(firma\w*|sello\w*|presentad[oa]s?)\b", readme.replace(config.WATERMARK, ""), re.I)
+
+
+def test_third_party_excluded(db):
+    opp = lic(db)
+    secret = b"%PDF-1.4 contenido de un tercero que no debe viajar en el ZIP"
+    third = Document(organization_id=opp.organization_id, code="TER-001", title="Certificado de un tercero",
+                     scope="expediente", data_kind="REAL", opportunity_id=opp.id, third_party=True,
+                     external_url="https://tercero.example/cert.pdf", review_status="pendiente")
+    db.add(third)
+    db.flush()
+    db.expire_all()
+    snap, data, manifest = make_package(db)
+    zf = open_zip(data)
+    entry = next(d for d in manifest["excluded_documents"] if d["code"] == "TER-001")
+    assert entry["third_party"] is True and "tercero" in entry["reason"].lower()
+    assert entry["external_url"] == "https://tercero.example/cert.pdf"
+    # Ningún archivo de documentos viaja en el paquete: solo plantillas, matriz, README y manifiesto.
+    assert all(n.startswith("docx/") or n in {"matriz.csv", "matriz.xlsx", "README_PENDIENTES.md", "manifest.json"}
+               for n in zf.namelist())
+    assert not any(secret in zf.read(n) for n in zf.namelist())
+    # También se lista el resto de los documentos del expediente, con su motivo.
+    assert {d["code"] for d in manifest["excluded_documents"]} >= {d["code"] for d in snap["documents"]}
+    assert all(d["reason"] for d in manifest["excluded_documents"])
 

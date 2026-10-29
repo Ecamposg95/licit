@@ -256,9 +256,18 @@ def _requirements_block(db: Session, opp: Opportunity, assessments: list[MatchAs
     return out, doc_ids
 
 
-def _workspace_block(db: Session, ws: BidWorkspace | None) -> dict | None:
+def _column_default(column):
+    return column.default.arg if column.default is not None else None
+
+
+def _workspace_block(db: Session, ws: BidWorkspace | None) -> dict:
+    """Estado del espacio de trabajo. Sin espacio creado se describe con los valores de uno recién abierto, para
+    que el `data_version` no cambie solo porque el generador lo cree en la primera generación."""
     if ws is None:
-        return None
+        cols = BidWorkspace.__table__.c
+        return {"decision": _column_default(cols.decision), "decision_reason": None,
+                "phase": _column_default(cols.phase), "approvals_stale": False,
+                "technical_approval": None, "commercial_approval": None}
 
     def approval(user_id, at):
         if not user_id and not at:
