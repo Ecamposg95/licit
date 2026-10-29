@@ -31,6 +31,7 @@ export DEMO_USER_PASSWORD=demo-pass SESSION_SECRET=dev
 .venv/bin/alembic upgrade head                 # esquema
 .venv/bin/python scripts/bootstrap.py          # org, fuentes, usuarios demo y semilla (si está vacía)
 .venv/bin/python scripts/bootstrap.py --reset  # reinicio determinista del demo (no toca datos REAL)
+.venv/bin/python scripts/ingest_catalog_documents.py --fetch   # PDFs de Traufix hacia el almacenamiento (OBJECT_STORAGE_* o STORAGE_DIR); idempotente
 .venv/bin/uvicorn app.main:app --reload        # :8000 · Swagger en /docs
 .venv/bin/python -m pytest -q                  # SQLite
 TEST_DATABASE_URL=postgresql://postgres:toor@localhost:5433/licit .venv/bin/python -m pytest -q   # contra Postgres
@@ -38,6 +39,8 @@ cd frontend && npm install && npm run dev      # :5173 (proxy /api → :8000)
 cd frontend && npm run build                   # tsc && vite build
 docker compose up -d                           # postgres:17 local
 ```
+`IMPORT_CATALOG=1` (el valor por defecto) hace que `bootstrap.py` importe el catálogo real de Dipromedic/Traufix en el primer
+arranque; con `IMPORT_CATALOG=0` se omite. `JOBS_WORKER=1` corre el worker de la búsqueda en vivo dentro del servicio web.
 Usuarios demo (`@dipromedic.example`): direccion, analista1..3, revisor, responsable, ti y presentador (todos los roles).
 
 ## Deploy (Railway)

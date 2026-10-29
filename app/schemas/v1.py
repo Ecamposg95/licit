@@ -146,7 +146,7 @@ class OpportunityPatch(BaseModel):
     families: list[str] | None = None
 
 
-# ── Catálogo ─────────────────────────────────────────────────────────────────
+# ── Catálogo (base de `schemas/catalog.py`) ──────────────────────────────────
 
 class VariantOut(ORM):
     id: str
@@ -160,17 +160,6 @@ class VariantOut(ORM):
     regulatory_reference: str | None
     data_kind: str
     review_status: str
-
-
-class ProductOut(ORM):
-    id: str
-    name: str
-    family: str
-    brand: str | None
-    manufacturer: str | None
-    data_kind: str
-    review_status: str
-    variants: list[VariantOut]
 
 
 # ── Documentos, requisitos y tareas ──────────────────────────────────────────

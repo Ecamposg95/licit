@@ -79,6 +79,12 @@ const DOC_TYPE: Record<string, string> = {
   ficha_tecnica: 'Ficha técnica',
   carta: 'Carta',
   registro: 'Registro',
+  constancia: 'Constancia',
+  bases: 'Bases',
+  tecnica_quirurgica: 'Técnica quirúrgica',
+  folleto: 'Folleto',
+  catalogo: 'Catálogo',
+  otro: 'Otro',
 }
 export const docTypeLabel = (c: string | null | undefined) => lookup(DOC_TYPE, c)
 
@@ -95,6 +101,8 @@ const RESULT: Record<string, string> = {
   adjudicado: 'Adjudicado',
   desierto: 'Desierto',
   cancelado: 'Cancelado',
+  'fallo publicado': 'Fallo publicado',
+  fallo_publicado: 'Fallo publicado',
 }
 export const resultLabel = (c: string | null | undefined) => lookup(RESULT, c)
 
@@ -116,12 +124,23 @@ const RESOURCE_TYPE: Record<string, string> = {
   user: 'Usuario',
   organization: 'Organización',
   source: 'Fuente',
+  search_run: 'Búsqueda en vivo',
 }
 export const resourceTypeLabel = (c: string | null | undefined) => lookup(RESOURCE_TYPE, c)
 
 const AUDIT_ACTION: Record<string, string> = {
   'auth.login': 'Inicio de sesión',
+  'opportunity.create': 'Oportunidad creada',
   'opportunity.update': 'Oportunidad actualizada',
+  'opportunity.import': 'Oportunidad importada manualmente',
+  'search.start': 'Búsqueda en vivo iniciada',
+  'search.finish': 'Búsqueda en vivo terminada',
+  'document.create': 'Documento creado',
+  'document.version_upload': 'Nueva versión de documento cargada',
+  'document.download': 'Documento descargado',
+  'document.file_repaired': 'Archivo de documento reparado',
+  'document.link_product': 'Documento vinculado a un producto',
+  'catalog.import': 'Catálogo importado',
   'demo.reset': 'Reinicio del demo',
 }
 export const auditActionLabel = (c: string) => AUDIT_ACTION[c] ?? c
@@ -138,6 +157,52 @@ const FIELD: Record<string, string> = {
   documents: 'Documentos',
   requirements: 'Requisitos',
   tasks: 'Actividades',
+  // Campos de los eventos de búsqueda, importación, documentos y catálogo
+  terms: 'Términos',
+  date_from: 'Fecha inicial',
+  date_to: 'Fecha final',
+  job_id: 'Tarea',
+  counts: 'Conteos',
+  errors: 'Fallos',
+  external_id: 'Número de procedimiento',
+  title: 'Título',
+  buyer: 'Convocante',
+  state: 'Entidad',
+  data_kind: 'Tipo de dato',
+  source_url: 'Enlace de la fuente',
+  verification_status: 'Verificación',
+  reported_status: 'Estado reportado',
+  result: 'Resultado',
+  questions_at: 'Junta de aclaraciones',
+  submission_at: 'Presentación de propuestas',
+  ruling_at: 'Fallo',
+  method: 'Método',
+  url: 'Enlace',
+  outcome: 'Resultado de la importación',
+  evidence_sha256: 'Huella de la evidencia',
+  code: 'Código',
+  scope: 'Alcance',
+  doc_type: 'Tipo de documento',
+  valid_until: 'Vigente hasta',
+  product_id: 'Producto',
+  opportunity_id: 'Oportunidad',
+  third_party: 'De un tercero',
+  external_url: 'Enlace externo',
+  current_version: 'Versión vigente',
+  review_status: 'Estado de revisión',
+  version: 'Versión',
+  filename: 'Archivo',
+  content_type: 'Tipo de archivo',
+  size_bytes: 'Tamaño (bytes)',
+  sha256: 'Huella SHA-256',
+  note: 'Nota',
+  source: 'Fuente',
+  checked_on: 'Consultado el',
+  products: 'Productos',
+  created: 'Creados',
+  updated: 'Actualizados',
+  warnings: 'Avisos',
+  warning_messages: 'Detalle de avisos',
 }
 export const fieldLabel = (c: string) => FIELD[c] ?? c
 

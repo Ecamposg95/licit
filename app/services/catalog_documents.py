@@ -12,13 +12,14 @@ import time
 import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
-from urllib.parse import unquote, urljoin, urlparse
+from urllib.parse import unquote, urlparse
 
 import httpx
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.errors import AppError
+from app.core.netguard import safe_get
 from app.models import Document, Product
 from app.services import audit, uploads
 from app.services.storage import get_storage
@@ -29,12 +30,11 @@ OWN_HOSTS = {"dipromedic.com", "www.dipromedic.com", "traufix.com", "www.traufix
 CATALOG_DOC_MAX_BYTES = 25 * 1024 * 1024
 FETCH_TIMEOUT = 60.0
 MAX_REDIRECTS = 3
-USER_AGENT = "LicitDemo/1.0 (+contacto Atlas Technologies)"
 LOCAL_PREFIX = "docs/research/dipromedic/pdfs/"
 FIXTURE = Path(__file__).resolve().parent.parent / "fixtures" / "catalogo_dipromedic.json"
 
 
-# ── Descarga (validación mínima de dominio) ──────────────────────────────────
+# ── Descarga (protección SSRF de netguard) ───────────────────────────────────
 
 class FetchError(Exception):
     def __init__(self, reason: str):
@@ -42,50 +42,29 @@ class FetchError(Exception):
         self.reason = reason
 
 
-def _require_own_https(url: str) -> None:
-    try:
-        parts = urlparse(url)
-        host, port = (parts.hostname or "").lower(), parts.port       # `.port` lanza ValueError con «:abc» o «:99999»
-    except ValueError:
-        raise FetchError("dominio_no_permitido") from None
-    if parts.scheme != "https" or host not in OWN_HOSTS or parts.username or parts.password \
-            or port not in (None, 443):
-        raise FetchError("dominio_no_permitido")
-
-
 def _download(url: str, *, max_bytes: int | None = None, timeout: float = FETCH_TIMEOUT,
               transport: httpx.BaseTransport | None = None) -> bytes:
-    """GET de un PDF en un host propio (solo https; las redirecciones también deben quedar en hosts propios).
-    TODO(integración): usar netguard.safe_get (frente C4) en lugar de esta validación mínima."""
+    """GET de un PDF en un host propio con `netguard.safe_get`: solo https, puerto 443, host en `OWN_HOSTS`, IP
+    públicas y cada redirección revalidada. Los errores de netguard se traducen a los motivos de la ingesta."""
     limit = CATALOG_DOC_MAX_BYTES if max_bytes is None else max_bytes
-    current = url
+    client = httpx.Client(transport=transport, follow_redirects=False,
+                          timeout=httpx.Timeout(timeout, connect=10.0)) if transport is not None else None
     try:
-        with httpx.Client(transport=transport, follow_redirects=False, headers={"User-Agent": USER_AGENT},
-                          timeout=httpx.Timeout(timeout, connect=10.0)) as client:
-            for _ in range(MAX_REDIRECTS + 1):
-                _require_own_https(current)
-                with client.stream("GET", current) as response:
-                    if response.is_redirect:
-                        try:
-                            current = urljoin(current, response.headers.get("location", ""))
-                        except ValueError:
-                            raise FetchError("dominio_no_permitido") from None
-                        continue
-                    if response.status_code != 200:
-                        raise FetchError(f"http_{response.status_code}")
-                    declared = response.headers.get("content-length")
-                    if declared and declared.isdigit() and int(declared) > limit:
-                        raise FetchError("archivo_demasiado_grande")
-                    chunks, size = [], 0
-                    for chunk in response.iter_bytes():
-                        size += len(chunk)
-                        if size > limit:
-                            raise FetchError("archivo_demasiado_grande")
-                        chunks.append(chunk)
-                    return b"".join(chunks)
-    except (httpx.HTTPError, httpx.InvalidURL):
+        response = safe_get(url, sorted(OWN_HOSTS), max_bytes=limit, max_redirects=MAX_REDIRECTS,
+                            timeout=(10.0, timeout), client=client)
+    except AppError as err:
+        if err.code == "url_not_allowed":
+            raise FetchError("demasiadas_redirecciones" if "Demasiadas redirecciones" in err.message
+                             else "dominio_no_permitido") from None
+        if err.code == "response_too_large":
+            raise FetchError("archivo_demasiado_grande") from None
         raise FetchError("descarga_fallida") from None
-    raise FetchError("demasiadas_redirecciones")
+    finally:
+        if client is not None:
+            client.close()
+    if response.status_code != 200:
+        raise FetchError(f"http_{response.status_code}")
+    return response.content
 
 
 # ── Inventario a partir del fixture ──────────────────────────────────────────

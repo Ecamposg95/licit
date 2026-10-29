@@ -51,10 +51,33 @@ export interface SearchErrorItem {
 /** Fecha mínima de búsqueda: el robots.txt de SIDOF prohíbe notas de 2011 a 2020. */
 export const MIN_SEARCH_DATE = '2021-01-01'
 
-/** Mensaje literal cuando SIDOF falla (brief C5): nunca se presenta como «no hay licitaciones». */
+/**
+ * Mensaje literal cuando SIDOF falla (brief C5): nunca se presenta como «no hay licitaciones».
+ * Solo se usa con un código de fallo de la fuente (`source_unavailable` o `aborted`); un `internal_error` o un tope de
+ * la corrida no es «SIDOF no respondió».
+ */
 export function sourceDownMessage(detail: string): string {
   return `SIDOF no respondió: ${detail.replace(/[.\s]+$/, '')}. Esto no significa que no haya licitaciones. Puedes importar manualmente`
 }
+
+/** Aviso ámbar cuando la corrida llegó a su tope (`MAX_NOTES_PER_RUN`) sin que la fuente fallara. */
+export function runLimitMessage(unread: number): string {
+  return `Se alcanzó el límite de la corrida; ${unread === 1 ? 'quedó 1 nota' : `quedaron ${unread} notas`} sin leer`
+}
+
+/** `zero_unconfirmed` en una página posterior a la primera. */
+export const UNCONFIRMED_PAGE_MESSAGE = 'SIDOF no confirmó la respuesta de una página; puede haber más resultados'
+
+/** Etiqueta corta en español de cada código de aviso de una corrida. */
+const ERROR_CODE_LABEL: Record<string, string> = {
+  source_unavailable: 'SIDOF no respondió',
+  zero_unconfirmed: 'respuesta sin confirmar',
+  aborted: 'lectura detenida',
+  truncated: 'resultados recortados',
+  no_procedure: 'nota sin número de procedimiento',
+  internal_error: 'error interno',
+}
+export const errorCodeLabel = (code: string) => ERROR_CODE_LABEL[code] ?? code.replace(/_/g, ' ')
 
 export interface SearchRun {
   id: string

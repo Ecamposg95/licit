@@ -397,6 +397,7 @@ def _search_term(client, term: str, date_from: date, date_to: date, state: _Stat
         start += PAGE_LENGTH
         if len(page.hits) < PAGE_LENGTH or (total is not None and start >= total):
             return hits, total, True
+    state.term(term)["errors"] += 1                  # resultado recortado: el término no queda «terminado»
     state.error(term, "truncated", f"«{term}» tiene más de {MAX_PAGES_PER_TERM * PAGE_LENGTH} notas; "
                                    "solo se leyeron las primeras. Acota el rango de fechas.")
     return hits, total, True

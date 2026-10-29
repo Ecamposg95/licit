@@ -318,6 +318,92 @@ def test_later_page_failure_leaves_term_incomplete(db):
     assert run.status == "partial" and run.errors[0]["code"] == "source_unavailable"
 
 
+def _hits(prefix: int, count: int):
+    from app.sources.base import NoteHit
+    return [NoteHit(cod_nota=str(prefix + i), title="X", published_on=date(2026, 1, 1), organism=None,
+                    url=f"https://sidof.segob.gob.mx/notas/docFuente/{prefix + i}") for i in range(count)]
+
+
+def _blank_note(cod: str):
+    blank = note("5801639")
+    blank.cod_nota, blank.url = cod, f"https://sidof.segob.gob.mx/notas/docFuente/{cod}"
+    blank.html = "<p>MATERIAL DE OSTEOSINTESIS sin tabla ni número de licitación</p>"
+    return blank
+
+
+class BlankNotesFake(FakeSidof):
+    """Páginas de `per_page` notas con `total` en SIDOF; cada nota se lee sin procedimientos."""
+
+    def __init__(self, per_page: int, total: int, confirm_after: int | None = None):
+        super().__init__()
+        self.per_page, self.total, self.confirm_after = per_page, total, confirm_after
+
+    def search(self, term, date_from, date_to, start=0, length=100, **kw):
+        self.searched.append((term, start))
+        if self.confirm_after is not None and start >= self.confirm_after:
+            return SearchPage(hits=[], total=self.total, confirmed=False)
+        return SearchPage(hits=_hits(7000000 + start, self.per_page), total=self.total, confirmed=True)
+
+    def get_note(self, cod):
+        self.fetched.append(cod)
+        return _blank_note(cod)
+
+
+def test_term_truncated_by_max_pages_ends_incompleto(db, monkeypatch):
+    """Si el término llega a MAX_PAGES_PER_TERM con más resultados, queda «incompleto», no «terminado»."""
+    monkeypatch.setattr(search_runs, "PAGE_LENGTH", 3)
+    monkeypatch.setattr(search_runs, "MAX_PAGES_PER_TERM", 2)
+    fake = BlankNotesFake(per_page=3, total=10)
+    run = launch(db, fake, ["osteosintesis"])
+    term = run.counts["by_term"][0]
+    assert [start for _, start in fake.searched] == [0, 3]               # no pide una tercera página
+    assert term["notes"] == 6 and term["read"] == 6                      # todo lo encontrado se leyó…
+    assert term["status"] == "incompleto" and term["errors"] == 1         # …pero el resultado quedó recortado
+    truncated = [e for e in run.errors if e["code"] == "truncated"]
+    assert len(truncated) == 1 and truncated[0]["term"] == "osteosintesis"
+    assert not any(e["code"] in ("source_unavailable", "aborted") for e in run.errors)
+    assert run.status == "partial"
+    assert sidof(db).status == "activa"                                  # truncar no es un fallo de la fuente
+
+
+def test_term_that_fits_in_max_pages_is_terminado(db, monkeypatch):
+    """Frontera: si el total cabe justo en MAX_PAGES_PER_TERM páginas, no hay truncamiento."""
+    monkeypatch.setattr(search_runs, "PAGE_LENGTH", 3)
+    monkeypatch.setattr(search_runs, "MAX_PAGES_PER_TERM", 2)
+    run = launch(db, BlankNotesFake(per_page=3, total=6), ["osteosintesis"])
+    term = run.counts["by_term"][0]
+    assert term["status"] == "terminado" and term["errors"] == 0 and term["notes"] == term["read"] == 6
+    assert not any(e["code"] == "truncated" for e in run.errors)
+
+
+def test_notes_cut_by_max_notes_per_run_leave_terms_incompleto(db, monkeypatch):
+    """MAX_NOTES_PER_RUN recorta la cola: el término que se quedó sin leer notas queda «incompleto»."""
+    monkeypatch.setattr(search_runs, "MAX_NOTES_PER_RUN", 2)
+    fake = FakeSidof(pages={"osteosintesis": SearchPage(hits=_hits(7100000, 4), total=4, confirmed=True),
+                            "endoprotesis": SearchPage(hits=_hits(7200000, 1), total=1, confirmed=True)})
+    fake.notes = {h.cod_nota: _blank_note(h.cod_nota) for t in ("osteosintesis", "endoprotesis")
+                  for h in fake.pages[t].hits}
+    run = launch(db, fake, ["osteosintesis", "endoprotesis"])
+    first, second = run.counts["by_term"]
+    assert len(fake.fetched) == 2
+    assert first["status"] == "incompleto" and first["read"] == 2 and first["notes"] == 4
+    assert second["status"] == "incompleto" and second["read"] == 0 and second["notes"] == 1   # nunca se alcanzó
+    cut = next(e for e in run.errors if e["code"] == "truncated")
+    assert cut["term"] is None and "solo se leen las primeras 2" in cut["message"]
+    assert not any(e["code"] in ("source_unavailable", "aborted") for e in run.errors)
+    assert run.status == "partial" and sidof(db).status == "activa"
+
+
+def test_later_page_unconfirmed_leaves_term_incompleto(db):
+    """`zero_unconfirmed` en una página posterior: el término no queda «terminado» y el aviso lleva su término."""
+    run = launch(db, BlankNotesFake(per_page=100, total=250, confirm_after=100), ["osteosintesis"])
+    term = run.counts["by_term"][0]
+    assert term["status"] == "incompleto" and term["errors"] == 1 and term["read"] == term["notes"] == 100
+    unconfirmed = [e for e in run.errors if e["code"] == "zero_unconfirmed"]
+    assert len(unconfirmed) == 1 and unconfirmed[0]["term"] == "osteosintesis"
+    assert run.status == "partial"
+
+
 def test_note_without_procedure_number_is_counted_and_listed(db):
     blank = note("5801639")
     blank.cod_nota, blank.url = "5801639", "https://sidof.segob.gob.mx/notas/docFuente/5801639"

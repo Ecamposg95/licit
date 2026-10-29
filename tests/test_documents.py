@@ -443,6 +443,7 @@ def test_upload_sample_script_and_upload(client, analista, tmp_path):
 
 import httpx  # noqa: E402
 
+from app.core import netguard  # noqa: E402
 from app.models import Product  # noqa: E402
 from app.services import catalog_documents as cd  # noqa: E402
 
@@ -637,7 +638,8 @@ def test_non_pdf_content_is_reported_not_stored(tmp_path):
         assert not db.scalars(select(Document).where(Document.external_url == TQ_URL)).all()
 
 
-def test_download_guard_allows_only_own_https_hosts():
+def test_download_guard_allows_only_own_https_hosts(monkeypatch):
+    monkeypatch.setattr(netguard, "resolve_host", lambda host: ["8.8.8.8"])       # sin red: IP pública fija
     def handler(request: httpx.Request) -> httpx.Response:
         host, path = request.url.host, request.url.path
         if path == "/ok.pdf":
@@ -685,11 +687,16 @@ def test_download_guard_allows_only_own_https_hosts():
         assert err.value.reason in {"dominio_no_permitido", "descarga_fallida"}, path
     for url in ("https://traufix.com:abc/x.pdf", "https://traufix.com:99999/x.pdf", "https://[::1/x.pdf"):
         with pytest.raises(cd.FetchError) as err:
-            cd._require_own_https(url)
+            get(url)
         assert err.value.reason == "dominio_no_permitido", url
     with pytest.raises(cd.FetchError) as err:
         get("https://traufix.com/big.pdf", max_bytes=1024)
     assert err.value.reason == "archivo_demasiado_grande"
+    # netguard: un host propio que resuelve a una IP interna tampoco se consulta
+    monkeypatch.setattr(netguard, "resolve_host", lambda host: ["10.0.0.5"])
+    with pytest.raises(cd.FetchError) as err:
+        get("https://traufix.com/ok.pdf")
+    assert err.value.reason == "dominio_no_permitido"
 
 
 def test_real_catalog_fixture_classification():

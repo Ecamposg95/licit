@@ -7,7 +7,8 @@ import Tooltip, { UnavailableAction } from '@/components/Tooltip'
 import { DataKindBadge, DerivedBadge, SourceStatusBadge } from '@/components/badges'
 import { DateTimeText, SubmissionDate, TimezoneNote } from '@/components/dates'
 import { EmptyState, ErrorPanel, TableSkeleton } from '@/components/feedback'
-import { listOpportunities, listProducts, listSources } from '@/lib/api'
+import { listOpportunities, listSources } from '@/lib/api'
+import { listCatalogLines } from '@/lib/api-catalog'
 import { MX_STATES, procedureTypeLabel } from '@/lib/labels'
 import { useApi } from '@/lib/useApi'
 import type { OpportunityRow, SourceOut } from '@/lib/types'
@@ -19,28 +20,58 @@ const PAGE_SIZE = 25
 /** Familias del diccionario inicial (task pack §6); se amplían con el catálogo y los resultados. */
 const BASE_FAMILIES = ['Osteosíntesis', 'Endoprótesis', 'Instrumental']
 
+/** Estado real de cada fuente: lo que guardó la última consulta (`status`, `last_checked_at`, `last_error`). */
 function SourceCoverage({ sources }: { sources: SourceOut[] }) {
   const official = sources.filter((s) => s.method !== 'fixture')
   if (official.length === 0) return null
-  const anyActive = official.some((s) => s.status === 'activa')
+  const consulted = official.filter((s) => !!s.last_checked_at)
+  const failed = consulted.filter((s) => s.status === 'inaccesible' || s.status === 'bloqueada')
   return (
     <section aria-labelledby="cobertura" className="card mb-4 px-4 py-3">
-      <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
-        <h2 id="cobertura" className="text-xs font-semibold text-slate-700">
-          Cobertura de fuentes
-        </h2>
+      <h2 id="cobertura" className="text-xs font-semibold text-slate-700">
+        Cobertura de fuentes
+      </h2>
+      <ul className="mt-2 space-y-1.5">
         {official.map((s) => (
-          <span key={s.id} className="inline-flex items-center gap-2 text-sm text-slate-700">
-            {s.name}
-            <SourceStatusBadge status={s.status} />
-          </span>
+          <li key={s.id} className="text-sm text-slate-700">
+            <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
+              <span className="font-medium text-slate-800">{s.name}</span>
+              <SourceStatusBadge status={s.status} />
+              <span className="text-xs text-slate-600">
+                {s.last_checked_at ? (
+                  <>
+                    Última consulta: <DateTimeText value={s.last_checked_at} />
+                  </>
+                ) : (
+                  'Sin consultas en vivo todavía'
+                )}
+              </span>
+            </span>
+            {s.last_error && s.last_checked_at && (
+              <p className="mt-0.5 line-clamp-2 text-xs text-slate-600" title={s.last_error}>
+                Último aviso: {s.last_error}
+              </p>
+            )}
+          </li>
         ))}
-      </div>
-      {!anyActive && (
+      </ul>
+      {consulted.length === 0 ? (
         <p className="mt-2 text-xs text-slate-600">
           Ninguna fuente oficial se ha consultado en vivo todavía. Los registros históricos provienen de resúmenes públicos
           capturados con su enlace; los escenarios son ficticios.
         </p>
+      ) : (
+        <>
+          {failed.length > 0 && (
+            <p className="mt-2 text-xs text-amber-900">
+              La última consulta a {failed.map((s) => s.name).join(' y ')} no se pudo completar. Una fuente caída no
+              significa que no existan procedimientos.
+            </p>
+          )}
+          <p className="mt-2 text-xs text-slate-600">
+            Los registros históricos provienen de resúmenes públicos capturados con su enlace; los escenarios son ficticios.
+          </p>
+        </>
       )}
     </section>
   )
@@ -176,7 +207,7 @@ export default function Radar() {
     result.reload()
     sources.reload()
   }
-  const products = useApi(() => listProducts({}), [])
+  const catalogLines = useApi(listCatalogLines, [])
 
   const [seenFamilies, setSeenFamilies] = useState<string[]>([])
   useEffect(() => {
@@ -185,10 +216,10 @@ export default function Radar() {
   }, [result.data])
 
   const familyOptions = useMemo(() => {
-    const set = new Set([...BASE_FAMILIES, ...seenFamilies, ...(products.data?.map((p) => p.family) ?? [])])
+    const set = new Set([...BASE_FAMILIES, ...seenFamilies, ...(catalogLines.data?.flatMap((l) => l.families) ?? [])])
     if (family) set.add(family)
     return Array.from(set).sort((a, b) => a.localeCompare(b, 'es'))
-  }, [seenFamilies, products.data, family])
+  }, [seenFamilies, catalogLines.data, family])
 
   const stateOptions = useMemo(() => {
     const set = new Set(MX_STATES)

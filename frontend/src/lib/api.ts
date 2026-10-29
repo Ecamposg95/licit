@@ -12,7 +12,6 @@ import type {
   OpportunityQuery,
   OpportunityRow,
   Page,
-  ProductOut,
   RequirementRow,
   SourceOut,
   TaskOut,
@@ -149,9 +148,6 @@ export const getOpportunityHistory = (id: string) =>
   http.get<AuditOut[]>(`/opportunities/${encodeURIComponent(id)}/history`).then((r) => r.data)
 
 // ── Recursos ─────────────────────────────────────────────────────────────────
-
-export const listProducts = (params: { family?: string; q?: string; data_kind?: DataKind[] }) =>
-  http.get<ProductOut[]>('/products', { params: clean(params) }).then((r) => r.data)
 
 export const listDocuments = (params: { scope?: string; data_kind?: DataKind[] }) =>
   http.get<DocumentOut[]>('/documents', { params: clean(params) }).then((r) => r.data)

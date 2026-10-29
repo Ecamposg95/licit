@@ -2,7 +2,7 @@ import { CircleAlert, CircleCheck, CircleX, Clock, History, LoaderCircle, Refres
 import { Badge } from '@/components/badges'
 import { DateTimeText } from '@/components/dates'
 import { ErrorPanel } from '@/components/feedback'
-import { listSearchRuns, type SearchRun, type SearchRunStatus } from '@/lib/api-search'
+import { errorCodeLabel, listSearchRuns, type SearchRun, type SearchRunStatus } from '@/lib/api-search'
 import { formatDate } from '@/lib/format'
 import { useApi } from '@/lib/useApi'
 
@@ -76,7 +76,7 @@ export default function SearchRunsPanel({ refreshKey = 0 }: { refreshKey?: numbe
                   {run.errors.length > 0 && (
                     <div className="mt-0.5 text-amber-900">
                       {run.errors.length} {run.errors.length === 1 ? 'aviso' : 'avisos'}:{' '}
-                      {Array.from(new Set(run.errors.map((e) => e.code))).join(', ')}
+                      {Array.from(new Set(run.errors.map((e) => errorCodeLabel(e.code)))).join(', ')}
                     </div>
                   )}
                 </li>

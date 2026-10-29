@@ -205,33 +205,6 @@ export interface OpportunityQuery {
   page_size?: number
 }
 
-// ── Catálogo ─────────────────────────────────────────────────────────────────
-
-export interface VariantOut {
-  id: string
-  sku: string
-  name: string
-  attributes: Record<string, unknown>
-  unit: string
-  price: DecimalString | null
-  currency: string | null
-  stock_demo: number | null
-  regulatory_reference: string | null
-  data_kind: DataKind
-  review_status: string
-}
-
-export interface ProductOut {
-  id: string
-  name: string
-  family: string
-  brand: string | null
-  manufacturer: string | null
-  data_kind: DataKind
-  review_status: string
-  variants: VariantOut[]
-}
-
 // ── Documentos, requisitos y tareas ──────────────────────────────────────────
 
 export interface DocumentVersionOut {

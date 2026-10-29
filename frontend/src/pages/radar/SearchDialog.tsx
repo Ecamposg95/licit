@@ -6,9 +6,11 @@ import {
   DEFAULT_TERMS,
   MAX_TERMS,
   MIN_SEARCH_DATE,
+  UNCONFIRMED_PAGE_MESSAGE,
   getJob,
   getSearchRun,
   newIdempotencyKey,
+  runLimitMessage,
   sourceDownMessage,
   startSearch,
   type JobOut,
@@ -78,10 +80,32 @@ function SourceDown({ detail, severe, onOpenImport }: { detail: string; severe: 
 
 const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1)
 
-function TermLine({ term, errors, onOpenImport }: { term: SearchTerm; errors: SearchErrorItem[]; onOpenImport: () => void }) {
+/** Aviso ámbar dentro de la línea de un término (límites de la corrida y resultados que pueden estar incompletos). */
+function TermNotice({ children }: { children: string }) {
+  return (
+    <p className="mt-1.5 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950">{children}</p>
+  )
+}
+
+function TermLine({
+  term,
+  errors,
+  aborted,
+  runFinished,
+  onOpenImport,
+}: {
+  term: SearchTerm
+  errors: SearchErrorItem[]
+  /** Corte global de la lectura tras fallos seguidos (no pertenece a un término). */
+  aborted: SearchErrorItem | undefined
+  runFinished: boolean
+  onOpenImport: () => void
+}) {
   const when = `SIDOF · ${hhmm(term.checked_at)} · «${term.term}»`
   const unavailable = errors.filter((e) => e.code === 'source_unavailable')
   const noProcedure = errors.find((e) => e.code === 'no_procedure')
+  const truncated = errors.find((e) => e.code === 'truncated')
+  const pageUnconfirmed = errors.some((e) => e.code === 'zero_unconfirmed')   // en la primera página el estado es «unconfirmed»
   if (term.status === 'error') {
     return (
       <li className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-red-900">
@@ -106,6 +130,15 @@ function TermLine({ term, errors, onOpenImport }: { term: SearchTerm; errors: Se
     )
   }
   if (term.status === 'pendiente' || term.status === 'buscando') {
+    if (runFinished) {
+      // La corrida se cortó antes de consultar este término (p. ej. por un error interno).
+      return (
+        <li className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-amber-950">
+          <CircleAlert aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
+          <p>«{term.term}» · la búsqueda se detuvo antes de terminar este término</p>
+        </li>
+      )
+    }
     return (
       <li className="flex items-center gap-2 px-3 py-2 text-slate-500">
         <LoaderCircle aria-hidden="true" className={`h-4 w-4 ${term.status === 'buscando' ? 'animate-spin' : ''}`} />
@@ -113,28 +146,49 @@ function TermLine({ term, errors, onOpenImport }: { term: SearchTerm; errors: Se
       </li>
     )
   }
+  const unread = Math.max(term.notes - term.read, 0)
   // «buscado» con notas pendientes también está en curso: la palomita solo aparece al terminar de leerlas.
-  const reading = term.status === 'leyendo' || (term.status === 'buscado' && term.read < term.notes)
-  const incomplete = term.status === 'incompleto' || (!reading && unavailable.length > 0)
+  const pendingReads = term.status === 'leyendo' || (term.status === 'buscado' && term.read < term.notes)
+  const reading = !runFinished && pendingReads
+  const stalled = runFinished && pendingReads            // la corrida terminó (o se cortó) sin acabar este término
+  // Un fallo de la fuente: lecturas fallidas de este término o un corte global que dejó notas suyas sin leer.
+  const abortedHere = !!aborted && unread > 0
+  const failed = unavailable.length > 0 || abortedHere
+  const incomplete = term.status === 'incompleto' || stalled || (!reading && failed)
   const nothingRead = incomplete && term.read === 0
-  const detail =
-    unavailable.length > 0
-      ? `${unavailable[0].message}${unavailable.length > 1 ? ` y ${unavailable.length - 1} lecturas más fallaron` : ''}`
-      : `${term.notes - term.read} notas quedaron sin leer`
+  const failureDetail =
+    [
+      unavailable.length > 0
+        ? `${unavailable[0].message}${unavailable.length > 1 ? ` y ${unavailable.length - 1} lecturas más fallaron` : ''}`
+        : null,
+      abortedHere ? lowerFirst(aborted!.message) : null,
+    ]
+      .filter(Boolean)
+      .join('; ') || 'sin detalle'
+  // Sin fallo de la fuente, las notas sin leer se deben al tope de la corrida: se dice así, no «SIDOF no respondió».
+  const notices: string[] = []
+  if (incomplete && !failed && stalled) notices.push('La búsqueda se detuvo antes de terminar este término')
+  else if (incomplete && !failed && unread > 0) notices.push(runLimitMessage(unread))
+  if (truncated) notices.push(truncated.message)
+  if (pageUnconfirmed) notices.push(UNCONFIRMED_PAGE_MESSAGE)
   return (
     <li className="px-3 py-2 text-slate-700">
       <div className="flex items-start gap-2">
         {reading ? (
           <LoaderCircle aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-dpm-blue" />
         ) : incomplete ? (
-          <CircleAlert aria-hidden="true" className={`mt-0.5 h-4 w-4 shrink-0 ${nothingRead ? 'text-red-700' : 'text-amber-700'}`} />
+          <CircleAlert aria-hidden="true" className={`mt-0.5 h-4 w-4 shrink-0 ${nothingRead && failed ? 'text-red-700' : 'text-amber-700'}`} />
         ) : (
           <CircleCheck aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
         )}
         <div className="min-w-0 flex-1">
           <p className="font-medium text-slate-900">
             {when} · {term.total ?? 0} notas · {term.new} {term.new === 1 ? 'nueva' : 'nuevas'}
-            {incomplete && <span className={nothingRead ? 'text-red-800' : 'text-amber-900'}> · lectura incompleta</span>}
+            {incomplete && (
+              <span className={nothingRead && failed ? 'text-red-800' : 'text-amber-900'}>
+                {unread > 0 || failed || stalled ? ' · lectura incompleta' : ' · resultados incompletos'}
+              </span>
+            )}
           </p>
           <p className="text-xs text-slate-500">
             {term.notes} de convocatorias por leer ({term.read} leídas)
@@ -148,7 +202,10 @@ function TermLine({ term, errors, onOpenImport }: { term: SearchTerm; errors: Se
               ` · ${term.other_notice_without_convocatoria} avisos de cancelación o modificación sin convocatoria registrada`}
             {term.updated + term.unchanged > 0 && ` · ${term.updated} actualizados, ${term.unchanged} sin cambios`}
           </p>
-          {incomplete && <SourceDown detail={detail} severe={nothingRead} onOpenImport={onOpenImport} />}
+          {incomplete && failed && <SourceDown detail={failureDetail} severe={nothingRead} onOpenImport={onOpenImport} />}
+          {notices.map((text) => (
+            <TermNotice key={text}>{text}</TermNotice>
+          ))}
           {noProcedure && (
             <div className="mt-1.5 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950">
               <p>
@@ -178,17 +235,42 @@ function Summary({ run, job, onOpenImport }: { run: SearchRun; job: JobOut | nul
   const c = run.counts
   const unavailable = run.errors.find((e) => e.code === 'source_unavailable')
   const aborted = run.errors.find((e) => e.code === 'aborted')
+  const internal = run.errors.find((e) => e.code === 'internal_error')
+  // «SIDOF no respondió» solo cuando hay un código de fallo de la fuente.
   const sourceDetail = [unavailable?.message, aborted && lowerFirst(aborted.message)].filter(Boolean).join('; ')
+  const obtained = c.new + c.updated + c.unchanged
   const tally = `${c.new} ${c.new === 1 ? 'procedimiento nuevo' : 'procedimientos nuevos'}, ${c.updated} actualizados y ${c.unchanged} sin cambios, de ${c.notes} notas leídas`
   if (run.status === 'failed') {
-    const detail = sourceDetail || (job?.status === 'failed' && job.error ? job.error : 'la corrida se detuvo')
+    if (!sourceDetail) {
+      // Sin fallo de la fuente: error interno o trabajo caído. No se acusa a SIDOF ni se niega lo ya guardado.
+      const detail =
+        internal?.message ?? (job?.status === 'failed' && job.error ? `La corrida se detuvo: ${job.error}` : 'La corrida se detuvo sin detalle.')
+      return (
+        <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
+          <p className="font-medium">
+            {obtained > 0
+              ? `La búsqueda se detuvo antes de terminar: ${tally}.`
+              : 'La búsqueda se detuvo antes de obtener procedimientos.'}
+          </p>
+          <p className="mt-1">
+            {detail}
+            {obtained > 0 && ' Lo ya guardado se conserva; vuelve a buscar para completar la lectura.'}
+          </p>
+        </div>
+      )
+    }
     return (
       <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
-        <p className="font-medium">La búsqueda no se completó: no se obtuvo ningún procedimiento de SIDOF.</p>
+        <p className="font-medium">
+          {obtained > 0
+            ? `La búsqueda no se completó: ${tally}.`
+            : 'La búsqueda no se completó: no se obtuvo ningún procedimiento de SIDOF.'}
+        </p>
         <div className="mt-1 flex flex-wrap items-start gap-2">
-          <p className="min-w-0 flex-1">{sourceDownMessage(detail)}</p>
+          <p className="min-w-0 flex-1">{sourceDownMessage(sourceDetail)}</p>
           <ImportButton onOpenImport={onOpenImport} label="Importar manualmente" />
         </div>
+        {internal && <p className="mt-1">{internal.message}</p>}
       </div>
     )
   }
@@ -204,9 +286,12 @@ function Summary({ run, job, onOpenImport }: { run: SearchRun; job: JobOut | nul
     )
   }
   if (run.status === 'partial') {
+    const cut = run.terms.some((t) => t.status === 'incompleto')
     return (
       <p role="status" className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950">
-        La búsqueda terminó con avisos (ver arriba): {tally}. El radar muestra ahora los datos REAL.
+        La búsqueda terminó con avisos (ver arriba): {tally}.
+        {cut && ' Quedaron términos incompletos: acota el rango de fechas o los términos para leer el resto.'} El radar muestra
+        ahora los datos REAL.
       </p>
     )
   }
@@ -338,9 +423,13 @@ export default function SearchDialog({ open, onClose, onFinished, onOpenImport }
   }
 
   const busy = phase === 'starting' || phase === 'running'
-  const TERM_CODES = new Set(['source_unavailable', 'zero_unconfirmed', 'no_procedure'])
+  const TERM_CODES = new Set(['source_unavailable', 'zero_unconfirmed', 'no_procedure', 'truncated'])
   const termErrors = (term: string) => (run?.errors ?? []).filter((x) => x.term === term && TERM_CODES.has(x.code))
-  const otherErrors = (run?.errors ?? []).filter((x) => !(x.term && TERM_CODES.has(x.code)) && x.code !== 'aborted')
+  // `aborted` va en la línea de cada término y `internal_error` en el resumen final.
+  const otherErrors = (run?.errors ?? []).filter(
+    (x) => !(x.term && TERM_CODES.has(x.code)) && x.code !== 'aborted' && x.code !== 'internal_error',
+  )
+  const aborted = (run?.errors ?? []).find((x) => x.code === 'aborted')
   const progress = phase === 'finished' ? 100 : (job?.progress ?? 0)
 
   return (
@@ -484,7 +573,14 @@ export default function SearchDialog({ open, onClose, onFinished, onOpenImport }
               {run && (
                 <ul className="space-y-1 text-sm">
                   {run.terms.map((t) => (
-                    <TermLine key={t.term} term={t} errors={termErrors(t.term)} onOpenImport={onOpenImport} />
+                    <TermLine
+                      key={t.term}
+                      term={t}
+                      errors={termErrors(t.term)}
+                      aborted={aborted}
+                      runFinished={run.status !== 'queued' && run.status !== 'running'}
+                      onOpenImport={onOpenImport}
+                    />
                   ))}
                 </ul>
               )}

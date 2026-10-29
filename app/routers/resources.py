@@ -1,29 +1,16 @@
-"""Catálogo, documentos, fuentes, tareas, usuarios, auditoría y operación del demo."""
+"""Fuentes, tareas, usuarios, auditoría y operación del demo (el catálogo vive en `routers/catalog.py`)."""
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.permissions import Perm, require_permission
-from app.models import AuditEvent, Organization, Product, Source, Task, User
+from app.models import AuditEvent, Organization, Source, Task, User
 from app.routers.opportunities import _user_ref, task_out
-from app.schemas.v1 import AuditOut, Page, ProductOut, SourceOut, TaskOut, UserOut
+from app.schemas.v1 import AuditOut, Page, SourceOut, TaskOut, UserOut
 from app.services.demo_seed import reset_demo
 
 router = APIRouter(prefix="/api/v1", tags=["recursos"])
-
-
-@router.get("/products", response_model=list[ProductOut], tags=["catálogo"])
-def list_products(family: str | None = None, data_kind: list[str] = Query(default=[]), q: str | None = None,
-                  db: Session = Depends(get_db), user: User = Depends(require_permission(Perm.CATALOG_READ))):
-    stmt = select(Product).where(Product.organization_id == user.organization_id)
-    if family:
-        stmt = stmt.where(Product.family == family)
-    if data_kind:
-        stmt = stmt.where(Product.data_kind.in_(data_kind))
-    if q:
-        stmt = stmt.where(Product.name.ilike(f"%{q}%"))
-    return [ProductOut.model_validate(p) for p in db.scalars(stmt.order_by(Product.family, Product.name))]
 
 
 @router.get("/sources", response_model=list[SourceOut], tags=["fuentes"])
