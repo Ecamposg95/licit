@@ -11,8 +11,8 @@ from app.core.errors import AppError
 from app.core.permissions import Perm, require_permission
 from app.core.tenant import get_owned
 from app.models import (
-    AuditEvent, Document, DocumentVersion, EvidenceLink, Lot, Opportunity, Requirement, RequirementStatus, Source,
-    Task, User, Variant,
+    AuditEvent, Document, DocumentVersion, EvidenceLink, Lot, MatchAssessment, Opportunity, Requirement,
+    RequirementStatus, Source, Task, User, Variant,
 )
 from app.schemas.v1 import (
     AuditOut, Derived, DocumentOut, LotOut, OpportunityDetail, OpportunityPatch, OpportunityRow, Page, SourceRef,
@@ -156,9 +156,14 @@ def requirement_rows(db: Session, opportunity_id: str, reqs: list[Requirement]) 
     user_ids |= {v.uploaded_by_id for v in versions.values()}
     user_ids.discard(None)
     users = {u.id: u for u in db.scalars(select(User).where(User.id.in_(user_ids)))} if user_ids else {}
+    assessments = {a.requirement_id: a for a in db.scalars(
+        select(MatchAssessment).where(MatchAssessment.opportunity_id == opportunity_id))}
+    variant_skus = dict(db.execute(select(Variant.id, Variant.sku).where(
+        Variant.id.in_({a.variant_id for a in assessments.values() if a.variant_id}))).all()) if assessments else {}
     today = review.today_mx()
     out = []
     for r in reqs:
+        a = assessments.get(r.id)
         t = tasks.get(r.id)
         by = review.required_by(db, r)
         evidence = []
@@ -182,6 +187,10 @@ def requirement_rows(db: Session, opportunity_id: str, reqs: list[Requirement]) 
             status=r.status, status_reason=r.status_reason, reviewer=_user_ref(r.reviewer),
             due_date=r.due_date, required_valid_until=r.required_valid_until, next_action=r.next_action,
             data_kind=r.data_kind, version=r.version, evidence=evidence, required_by=by,
+            assessment={"result": a.result, "explanation": a.explanation, "rule": a.rule,
+                        "engine_version": a.engine_version, "catalog_value": a.catalog_value,
+                        "source_text": a.source_text, "variant_sku": variant_skus.get(a.variant_id),
+                        "assessed_at": a.created_at.isoformat()} if a else None,
             open_task={"id": t.id, "status": t.status, "assignee": t.assignee.full_name if t.assignee else None,
                        "assignee_id": t.assignee_id,
                        "due_date": t.due_date.isoformat() if t.due_date else None} if t else None,

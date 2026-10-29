@@ -106,7 +106,10 @@ class LotPrice(BaseModel):
     number: str
     unit_price: Decimal | None
     currency: str | None
-    price_data_kind: str | None
+    price_data_kind: str | None                # procedencia del precio, independiente del producto
+    product_id: str | None = None              # ficha del producto propuesto
+    product_name: str | None = None
+    product_review_status: str | None = None
 
 
 class WorkspaceView(BaseModel):

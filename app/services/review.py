@@ -87,6 +87,13 @@ def uploaders(db: Session, requirement: Requirement) -> set[str]:
     return ids
 
 
+def lock_requirement(db: Session, requirement: Requirement) -> None:
+    """Bloquea la fila (Postgres) y relee el requisito: la versión esperada se compara con lo confirmado, no con
+    una lectura que otra solicitud simultánea pudo dejar atrás. En SQLite no hay FOR UPDATE."""
+    db.execute(select(Requirement.id).where(Requirement.id == requirement.id).with_for_update())
+    db.refresh(requirement)
+
+
 # ── Evidencia ────────────────────────────────────────────────────────────────
 
 def link_evidence(db: Session, user, requirement: Requirement, document_version: DocumentVersion,
@@ -96,6 +103,7 @@ def link_evidence(db: Session, user, requirement: Requirement, document_version:
     require(user, Perm.DOCUMENT_UPLOAD)
     if user.organization_id != requirement.organization_id or user.organization_id != document_version.organization_id:
         raise AppError(404, "not_found", "Documento no encontrado")
+    lock_requirement(db, requirement)
     document = db.get(Document, document_version.document_id)
     if requirement.data_kind == DataKind.REAL.value and document.data_kind == DataKind.SYNTHETIC.value:
         raise AppError(422, "synthetic_evidence",
@@ -136,6 +144,7 @@ def review_requirement(db: Session, user, requirement: Requirement, decision: st
     reason = (reason or "").strip()
     if not reason:
         raise AppError(422, "reason_required", "Indica el motivo de la revisión.")
+    lock_requirement(db, requirement)
     if expected_version != requirement.version:
         raise AppError(409, "version_conflict", "El requisito cambió desde que lo abriste; recarga.",
                        {"current_version": requirement.version})
