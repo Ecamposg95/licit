@@ -1,137 +1,92 @@
 import { useEffect, useMemo, useState } from 'react'
-import { FileSpreadsheet } from 'lucide-react'
+import { FlaskConical } from 'lucide-react'
 import PageHeader from '@/components/PageHeader'
-import DataKindChips, { usePersistentDataKinds } from '@/components/DataKindChips'
-import Tooltip, { UnavailableAction } from '@/components/Tooltip'
-import { DataKindBadge, ReviewStatusBadge } from '@/components/badges'
-import { EmptyState, ErrorPanel, Forbidden, TableSkeleton } from '@/components/feedback'
-import { listProducts } from '@/lib/api'
-import { formatInteger, formatMoney, formatValue } from '@/lib/format'
-import { attributeLabel, attributeUnit } from '@/lib/labels'
+import Tabs, { type TabDef } from '@/components/Tabs'
+import { EmptyState, ErrorPanel, Forbidden, LoadingBlock } from '@/components/feedback'
+import { listCatalogLines, listCatalogProducts, type ProductCard } from '@/lib/api-catalog'
 import { useApi } from '@/lib/useApi'
-import type { ProductOut, VariantOut } from '@/lib/types'
-import { useCan } from '@/store/auth'
+import type { DataKind } from '@/lib/types'
+import { useAuth, useCan } from '@/store/auth'
+import ProductCardView from '@/pages/catalog/ProductCardView'
 
-function Attributes({ attrs }: { attrs: Record<string, unknown> }) {
-  const entries = Object.entries(attrs)
-  if (entries.length === 0) return <span className="muted">Sin atributos</span>
+type TabId = 'real' | 'simulado'
+const KIND: Record<TabId, DataKind> = { real: 'REAL', simulado: 'SYNTHETIC' }
+const WATERMARK_FALLBACK = 'DEMOSTRACIÓN · DATOS FICTICIOS · SIN VALIDEZ PARA PRESENTACIÓN'
+
+function group<T>(items: T[], key: (item: T) => string): [string, T[]][] {
+  const m = new Map<string, T[]>()
+  for (const item of items) m.set(key(item), [...(m.get(key(item)) ?? []), item])
+  return Array.from(m.entries())
+}
+
+interface Section {
+  title: string
+  blocks: { heading: string | null; items: ProductCard[] }[]
+}
+
+function Results({ cards, tab, lineOrder }: { cards: ProductCard[]; tab: TabId; lineOrder: string[] }) {
+  // REAL: por línea (la de más fichas primero) y, dentro de cada una, por familia. SIMULADO: sólo por familia.
+  const sections = useMemo<Section[]>(() => {
+    if (tab === 'simulado') {
+      return group(cards, (c) => c.family).map(([family, items]) => ({ title: family, blocks: [{ heading: null, items }] }))
+    }
+    const rank = (line: string) => {
+      const i = lineOrder.indexOf(line)
+      return i < 0 ? lineOrder.length : i
+    }
+    return group(cards, (c) => c.line ?? 'Sin línea')
+      .sort((a, b) => rank(a[0]) - rank(b[0]))
+      .map(([line, items]) => ({
+        title: line,
+        blocks: group(items, (c) => c.family).map(([family, rows]) => ({ heading: family, items: rows })),
+      }))
+  }, [cards, tab, lineOrder])
+  const variants = cards.reduce((n, c) => n + c.variant_count, 0)
   return (
-    <ul className="space-y-0.5 text-xs">
-      {entries.map(([k, v]) => {
-        const missing = v === null || v === undefined || v === ''
-        const unit = attributeUnit(k)
+    <div className="space-y-10">
+      <p className="text-sm text-slate-600" aria-live="polite">
+        {cards.length} {cards.length === 1 ? 'ficha' : 'fichas'} · {variants} {variants === 1 ? 'variante' : 'variantes'}
+      </p>
+      {sections.map(({ title, blocks }) => {
+        const total = blocks.reduce((n, b) => n + b.items.length, 0)
         return (
-          <li key={k} title={k}>
-            <span className="text-slate-600">{attributeLabel(k)}:</span>{' '}
-            {missing ? (
-              <span className="italic text-slate-500">no declarado</span>
-            ) : (
-              <span className="text-slate-900">
-                {formatValue(v)}
-                {unit ? ` ${unit}` : ''}
+          <section key={title} aria-labelledby={`sec-${title}`}>
+            <h2 id={`sec-${title}`} className="flex items-baseline gap-2 text-lg font-semibold text-slate-900">
+              {title}
+              <span className="text-sm font-normal text-slate-500">
+                {total} {total === 1 ? 'ficha' : 'fichas'}
               </span>
-            )}
-          </li>
+            </h2>
+            <span className="brand-rule mb-4 mt-1.5" aria-hidden="true" />
+            <div className="space-y-6">
+              {blocks.map(({ heading, items }) => (
+                <div key={heading ?? title}>
+                  {heading && blocks.length > 1 && (
+                    <h3 className="mb-2 text-sm font-semibold text-slate-700">
+                      {heading}
+                      <span className="ml-2 text-xs font-normal text-slate-500">{items.length}</span>
+                    </h3>
+                  )}
+                  <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                    {items.map((p) => (
+                      <ProductCardView key={p.id} p={p} heading={heading && blocks.length > 1 ? 'h4' : 'h3'} />
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
         )
       })}
-    </ul>
-  )
-}
-
-function Regulatory({ value }: { value: string | null }) {
-  if (!value) return <span className="muted">No declarada</span>
-  if (value === 'DEMO-SIN-VALIDEZ') {
-    return (
-      <Tooltip content="Registro ficticio: no corresponde a ningún registro sanitario." focusable>
-        <span className="rounded bg-amber-50 px-1.5 py-0.5 text-xs font-medium text-amber-900 ring-1 ring-amber-200">{value}</span>
-      </Tooltip>
-    )
-  }
-  return <span className="text-xs">{value}</span>
-}
-
-function VariantsTable({ variants }: { variants: VariantOut[] }) {
-  return (
-    <div className="relative overflow-x-auto">
-      <table className="table-base min-w-[980px]">
-        <thead>
-          <tr>
-            <th scope="col">SKU</th>
-            <th scope="col">Variante</th>
-            <th scope="col">Atributos</th>
-            <th scope="col">Unidad</th>
-            <th scope="col" className="text-right">
-              Precio demo
-            </th>
-            <th scope="col" className="text-right">
-              Existencia
-            </th>
-            <th scope="col">Referencia regulatoria</th>
-            <th scope="col">Revisión</th>
-          </tr>
-        </thead>
-        <tbody>
-          {variants.map((v) => (
-            <tr key={v.id}>
-              <td className="whitespace-nowrap text-xs font-medium tabular-nums">{v.sku}</td>
-              <td className="min-w-[220px]">{v.name}</td>
-              <td className="min-w-[160px]">
-                <Attributes attrs={v.attributes} />
-              </td>
-              <td>{v.unit}</td>
-              <td className="whitespace-nowrap text-right tabular-nums">
-                {formatMoney(v.price, v.currency) ?? <span className="muted">Sin precio</span>}
-                {v.price && v.data_kind === 'SYNTHETIC' && <div className="text-[11px] text-amber-800">ficticio</div>}
-              </td>
-              <td className="whitespace-nowrap text-right tabular-nums">
-                {v.stock_demo !== null ? (
-                  <>
-                    {formatInteger(v.stock_demo)}
-                    <div className="text-[11px] text-amber-800">simulado</div>
-                  </>
-                ) : (
-                  <span className="muted">No declarada</span>
-                )}
-              </td>
-              <td>
-                <Regulatory value={v.regulatory_reference} />
-              </td>
-              <td>
-                <ReviewStatusBadge status={v.review_status} />
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
     </div>
-  )
-}
-
-function ProductBlock({ p }: { p: ProductOut }) {
-  return (
-    <article className="card overflow-hidden" aria-labelledby={`prod-${p.id}`}>
-      <header className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 px-4 py-3">
-        <div className="min-w-0">
-          <h3 id={`prod-${p.id}`} className="font-semibold text-slate-900">
-            {p.name}
-          </h3>
-          <p className="mt-0.5 text-xs text-slate-500">
-            Marca: {p.brand ?? 'no declarada'} · Fabricante declarado: {p.manufacturer ?? 'no declarado'}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <DataKindBadge kind={p.data_kind} />
-          <ReviewStatusBadge status={p.review_status} />
-        </div>
-      </header>
-      {p.variants.length ? <VariantsTable variants={p.variants} /> : <p className="px-4 py-3 text-sm text-slate-500">Sin variantes.</p>}
-    </article>
   )
 }
 
 export default function Catalog() {
   const canRead = useCan('catalog.read')
-  const [kinds, setKinds] = usePersistentDataKinds('licit.catalog.dataKinds')
+  const watermark = useAuth((s) => s.meta?.watermark) ?? WATERMARK_FALLBACK
+  const [tab, setTab] = useState<TabId>('real')
+  const [line, setLine] = useState('')
   const [family, setFamily] = useState('')
   const [text, setText] = useState('')
   const [q, setQ] = useState('')
@@ -141,119 +96,130 @@ export default function Catalog() {
     return () => window.clearTimeout(t)
   }, [text])
 
-  const noKinds = kinds.length === 0
-  const products = useApi(() => listProducts({ family, q, data_kind: kinds }), [family, q, kinds.join(',')], canRead && !noKinds)
-  // Familias disponibles: catálogo completo, sin filtros.
-  const allProducts = useApi(() => listProducts({}), [], canRead)
-  const families = useMemo(
-    () => Array.from(new Set((allProducts.data ?? []).map((p) => p.family))).sort((a, b) => a.localeCompare(b, 'es')),
-    [allProducts.data],
+  const kind = KIND[tab]
+  const lines = useApi(listCatalogLines, [], canRead)
+  // Fichas simuladas sin filtros: dan el conteo de la pestaña y las familias del filtro.
+  const allSimulated = useApi(() => listCatalogProducts({ data_kind: ['SYNTHETIC'] }), [], canRead)
+  const products = useApi(
+    () => listCatalogProducts({ data_kind: [kind], line: tab === 'real' ? line : undefined, family, q }),
+    [kind, line, family, q],
+    canRead,
   )
 
-  const grouped = useMemo(() => {
-    const m = new Map<string, ProductOut[]>()
-    for (const p of products.data ?? []) m.set(p.family, [...(m.get(p.family) ?? []), p])
-    return Array.from(m.entries())
-  }, [products.data])
+  const families = useMemo(() => {
+    if (tab === 'simulado') {
+      return Array.from(new Set((allSimulated.data ?? []).map((p) => p.family))).sort((a, b) => a.localeCompare(b, 'es'))
+    }
+    const scoped = (lines.data ?? []).filter((l) => !line || l.line === line)
+    return Array.from(new Set(scoped.flatMap((l) => l.families))).sort((a, b) => a.localeCompare(b, 'es'))
+  }, [tab, line, lines.data, allSimulated.data])
 
   if (!canRead) return <Forbidden permission="catalog.read" />
 
-  const variantCount = (products.data ?? []).reduce((n, p) => n + p.variants.length, 0)
+  const realCount = (lines.data ?? []).reduce((n, l) => n + l.product_count, 0)
+  const tabs: TabDef[] = [
+    { id: 'real', label: 'Catálogo Dipromedic (REAL)', count: lines.data ? realCount : null },
+    { id: 'simulado', label: 'Variantes ficticias de escenarios (SIMULADO)', count: allSimulated.data?.length ?? null },
+  ]
+
+  const changeTab = (id: string) => {
+    setTab(id as TabId)
+    setLine('')
+    setFamily('')
+  }
+  const changeLine = (value: string) => {
+    setLine(value)
+    setFamily('')
+  }
 
   return (
     <div>
       <PageHeader
         title="Catálogo"
-        description="Productos y variantes con atributos técnicos y unidades. Un atributo sin dato se muestra como no declarado; nunca se deduce del nombre."
-        actions={
-          <UnavailableAction
-            label="Importar CSV"
-            icon={<FileSpreadsheet aria-hidden="true" className="h-4 w-4" />}
-            reason="Importación con previsualización: próxima entrega"
-          />
-        }
+        description="Productos del catálogo público de Dipromedic con la cita textual de cada atributo técnico. Un dato que el sitio no publica se muestra como no publicado; nunca se deduce del nombre."
       />
 
-      <div
-        role="note"
-        className="hatch-synthetic-soft mb-4 rounded-md border border-amber-300 px-4 py-2.5 text-sm text-amber-950"
-      >
-        <strong className="font-semibold">Datos ficticios.</strong> Productos, precios, existencias y registros de este
-        catálogo son de demostración; no representan el catálogo ni la capacidad real de Dipromedic.
-      </div>
-
-      <section aria-label="Filtros" className="card mb-4 p-4">
-        <DataKindChips value={kinds} onChange={setKinds} />
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:max-w-2xl">
-          <div>
-            <label htmlFor="c-q" className="label">
-              Producto
-            </label>
-            <input
-              id="c-q"
-              type="search"
-              className="input"
-              placeholder="Nombre del producto"
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-            />
+      <Tabs tabs={tabs} active={tab} onChange={changeTab} idPrefix="catalogo">
+        {tab === 'simulado' ? (
+          <div
+            role="note"
+            className="hatch-synthetic-soft mb-4 flex items-start gap-3 rounded-md border border-amber-300 px-4 py-2.5 text-sm text-amber-950"
+          >
+            <FlaskConical aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>
+              <strong className="font-semibold">{watermark}.</strong> Estas variantes sirven para los escenarios de
+              demostración: sus precios, existencias y registros son ficticios y no representan el catálogo ni la
+              capacidad real de Dipromedic.
+            </span>
           </div>
-          <div>
-            <label htmlFor="c-family" className="label">
-              Familia
-            </label>
-            <select id="c-family" className="input" value={family} onChange={(e) => setFamily(e.target.value)}>
-              <option value="">Todas</option>
-              {families.map((f) => (
-                <option key={f} value={f}>
-                  {f}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-      </section>
-
-      {noKinds ? (
-        <div className="card">
-          <EmptyState title="Activa al menos un tipo de dato">Elige REAL, HISTÓRICO o SIMULADO para ver productos.</EmptyState>
-        </div>
-      ) : products.error ? (
-        <ErrorPanel error={products.error} onRetry={products.reload} />
-      ) : !products.data ? (
-        <div className="card">
-          <TableSkeleton cols={6} />
-        </div>
-      ) : products.data.length === 0 ? (
-        <div className="card">
-          <EmptyState title="Sin productos para estos filtros">
-            {kinds.includes('SYNTHETIC')
-              ? 'Ajusta o limpia los filtros.'
-              : 'El catálogo de demostración es ficticio: activa SIMULADO para verlo. Aún no hay un catálogo real importado.'}
-          </EmptyState>
-        </div>
-      ) : (
-        <div className="space-y-8">
-          <p className="text-sm text-slate-600" aria-live="polite">
-            {products.data.length} productos · {variantCount} variantes
+        ) : (
+          <p className="mb-4 text-sm text-slate-600">
+            Contenido público de dipromedic.com. Precio, existencias y registro sanitario no vienen del sitio.
           </p>
-          {grouped.map(([fam, items], i) => (
-            <section key={fam} aria-labelledby={`fam-${i}`}>
-              <h2 id={`fam-${i}`} className="mb-3 flex items-baseline gap-2 text-lg font-semibold text-slate-900">
-                {fam}
-                <span className="text-sm font-normal text-slate-500">
-                  {items.length} {items.length === 1 ? 'producto' : 'productos'}
-                </span>
-              </h2>
-              <div className="space-y-4">
-                {items.map((p) => (
-                  <ProductBlock key={p.id} p={p} />
-                ))}
+        )}
+
+        <section aria-label="Filtros" className="card mb-5 p-4">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div>
+              <label htmlFor="c-q" className="label">
+                Producto o código
+              </label>
+              <input
+                id="c-q"
+                type="search"
+                className="input"
+                placeholder="Nombre o SKU (por ejemplo 198)"
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+              />
+            </div>
+            {tab === 'real' && (
+              <div>
+                <label htmlFor="c-line" className="label">
+                  Línea
+                </label>
+                <select id="c-line" className="input" value={line} onChange={(e) => changeLine(e.target.value)}>
+                  <option value="">Todas</option>
+                  {(lines.data ?? []).map((l) => (
+                    <option key={l.line} value={l.line}>
+                      {l.line} ({l.product_count})
+                    </option>
+                  ))}
+                </select>
               </div>
-            </section>
-          ))}
-        </div>
-      )}
+            )}
+            <div>
+              <label htmlFor="c-family" className="label">
+                Familia
+              </label>
+              <select id="c-family" className="input" value={family} onChange={(e) => setFamily(e.target.value)}>
+                <option value="">Todas</option>
+                {families.map((f) => (
+                  <option key={f} value={f}>
+                    {f}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </section>
+
+        {products.error ? (
+          <ErrorPanel error={products.error} onRetry={products.reload} />
+        ) : !products.data ? (
+          <LoadingBlock label="Cargando catálogo…" />
+        ) : products.data.length === 0 ? (
+          <div className="card">
+            <EmptyState title="Sin fichas para estos filtros">
+              {tab === 'real' && !line && !family && !q
+                ? 'Aún no hay un catálogo real importado en esta organización. El administrador puede importarlo al iniciar el servicio.'
+                : 'Ajusta o limpia los filtros.'}
+            </EmptyState>
+          </div>
+        ) : (
+          <Results cards={products.data} tab={tab} lineOrder={(lines.data ?? []).map((l) => l.line)} />
+        )}
+      </Tabs>
     </div>
   )
 }
