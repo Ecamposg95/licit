@@ -1,15 +1,16 @@
-"""Licit — plataforma de licitaciones públicas para Grupo Dipromedic."""
+"""Licit — demo comercial de licitaciones públicas (white label · Dipromedic · Demo)."""
 import os
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 import app.models  # noqa: F401  registra todas las tablas en Base.metadata
-from app.routers import auth, licitaciones
+from app.core import errors
+from app.routers import auth, opportunities, resources
 
-app = FastAPI(title="Licit · Dipromedic", version="0.1.0")
+app = FastAPI(title="Licit · Dipromedic Demo API", version="1.0.0")
 
 _cors = [o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",") if o.strip()]
 app.add_middleware(
@@ -18,13 +19,16 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Correlation-ID"],
 )
+errors.install(app)
 
 app.include_router(auth.router)
-app.include_router(licitaciones.router)
+app.include_router(opportunities.router)
+app.include_router(resources.router)
 
 
-@app.get("/health")
+@app.get("/health", include_in_schema=False)
 def health():
     return {"status": "ok", "commit": os.getenv("RAILWAY_GIT_COMMIT_SHA", "local")[:7]}
 
@@ -38,9 +42,13 @@ if os.path.isdir(f"{_REACT_DIST}/assets"):
 @app.get("/{full_path:path}", include_in_schema=False)
 def spa(full_path: str):
     if full_path.startswith("api/"):
-        raise HTTPException(status_code=404)
-    candidate = os.path.join(_REACT_DIST, full_path)
-    if full_path and os.path.isfile(candidate):
+        return JSONResponse(status_code=404, content={
+            "code": "not_found", "message": "Ruta no encontrada",
+            "correlation_id": errors.correlation_id_var.get(), "details": None})
+    root = os.path.realpath(_REACT_DIST)
+    candidate = os.path.realpath(os.path.join(root, full_path))
+    # Sólo archivos dentro de dist/: bloquea ../ hacia el código del servidor.
+    if full_path and candidate.startswith(root + os.sep) and os.path.isfile(candidate):
         return FileResponse(candidate)
     index = os.path.join(_REACT_DIST, "index.html")
     if os.path.isfile(index):

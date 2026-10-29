@@ -12,8 +12,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+COPY alembic.ini .
+COPY alembic/ alembic/
 COPY app/ app/
 COPY scripts/ scripts/
 COPY --from=frontend /build/dist frontend/dist
 EXPOSE 8000
-CMD python scripts/railway_init.py && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers --forwarded-allow-ips "*"
+CMD alembic upgrade head && python scripts/bootstrap.py && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers --forwarded-allow-ips "*"

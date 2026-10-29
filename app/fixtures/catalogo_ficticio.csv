@@ -1,0 +1,19 @@
+id,name,family,data_kind,unit,price_demo_mxn,stock_demo,regulatory_reference
+DEMO-PLA-001,Placa bloqueada demostración variante 1,Osteosíntesis,SYNTHETIC,pieza,1500,20,DEMO-SIN-VALIDEZ
+DEMO-PLA-002,Placa bloqueada demostración variante 2,Osteosíntesis,SYNTHETIC,pieza,1800,25,DEMO-SIN-VALIDEZ
+DEMO-PLA-003,Placa bloqueada demostración variante 3,Osteosíntesis,SYNTHETIC,pieza,2100,30,DEMO-SIN-VALIDEZ
+DEMO-CLA-001,Clavo intramedular demostración variante 1,Osteosíntesis,SYNTHETIC,pieza,4000,20,DEMO-SIN-VALIDEZ
+DEMO-CLA-002,Clavo intramedular demostración variante 2,Osteosíntesis,SYNTHETIC,pieza,4300,25,DEMO-SIN-VALIDEZ
+DEMO-CLA-003,Clavo intramedular demostración variante 3,Osteosíntesis,SYNTHETIC,pieza,4600,30,DEMO-SIN-VALIDEZ
+DEMO-CAD-001,Componente de cadera demostración variante 1,Artroplastia de cadera,SYNTHETIC,pieza,6500,20,DEMO-SIN-VALIDEZ
+DEMO-CAD-002,Componente de cadera demostración variante 2,Artroplastia de cadera,SYNTHETIC,pieza,6800,25,DEMO-SIN-VALIDEZ
+DEMO-CAD-003,Componente de cadera demostración variante 3,Artroplastia de cadera,SYNTHETIC,pieza,7100,30,DEMO-SIN-VALIDEZ
+DEMO-ROD-001,Componente de rodilla demostración variante 1,Artroplastia de rodilla,SYNTHETIC,pieza,9000,20,DEMO-SIN-VALIDEZ
+DEMO-ROD-002,Componente de rodilla demostración variante 2,Artroplastia de rodilla,SYNTHETIC,pieza,9300,25,DEMO-SIN-VALIDEZ
+DEMO-ROD-003,Componente de rodilla demostración variante 3,Artroplastia de rodilla,SYNTHETIC,pieza,9600,30,DEMO-SIN-VALIDEZ
+DEMO-COL-001,Componente de columna demostración variante 1,Columna,SYNTHETIC,pieza,11500,20,DEMO-SIN-VALIDEZ
+DEMO-COL-002,Componente de columna demostración variante 2,Columna,SYNTHETIC,pieza,11800,25,DEMO-SIN-VALIDEZ
+DEMO-COL-003,Componente de columna demostración variante 3,Columna,SYNTHETIC,pieza,12100,30,DEMO-SIN-VALIDEZ
+DEMO-INS-001,Instrumental ortopédico demostración variante 1,Instrumental,SYNTHETIC,pieza,14000,20,DEMO-SIN-VALIDEZ
+DEMO-INS-002,Instrumental ortopédico demostración variante 2,Instrumental,SYNTHETIC,pieza,14300,25,DEMO-SIN-VALIDEZ
+DEMO-INS-003,Instrumental ortopédico demostración variante 3,Instrumental,SYNTHETIC,pieza,14600,30,DEMO-SIN-VALIDEZ

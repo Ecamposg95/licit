@@ -1,22 +1,65 @@
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
-import type { User } from '@/lib/api'
+import { createJSONStorage, persist } from 'zustand/middleware'
+import type { Me, Meta, Permission } from '@/lib/types'
+import { setDisplayTimeZone } from '@/lib/format'
 
 interface AuthState {
   token: string | null
-  user: User | null
-  setSession: (token: string, user: User) => void
+  me: Me | null
+  meta: Meta | null
+  setSession: (token: string, me: Me, meta: Meta) => void
+  setProfile: (me: Me, meta: Meta) => void
   logout: () => void
 }
+
+/** localStorage puede no estar disponible (modo privado): se degrada a memoria. */
+const safeStorage = createJSONStorage(() => {
+  try {
+    const probe = '__licit_probe__'
+    window.localStorage.setItem(probe, '1')
+    window.localStorage.removeItem(probe)
+    return window.localStorage
+  } catch {
+    const mem = new Map<string, string>()
+    return {
+      getItem: (k: string) => mem.get(k) ?? null,
+      setItem: (k: string, v: string) => void mem.set(k, v),
+      removeItem: (k: string) => void mem.delete(k),
+    }
+  }
+})
 
 export const useAuth = create<AuthState>()(
   persist(
     (set) => ({
       token: null,
-      user: null,
-      setSession: (token, user) => set({ token, user }),
-      logout: () => set({ token: null, user: null }),
+      me: null,
+      meta: null,
+      setSession: (token, me, meta) => {
+        setDisplayTimeZone(meta.display_timezone)
+        set({ token, me, meta })
+      },
+      setProfile: (me, meta) => {
+        setDisplayTimeZone(meta.display_timezone)
+        set({ me, meta })
+      },
+      logout: () => set({ token: null, me: null, meta: null }),
     }),
-    { name: 'licit-auth' },
+    {
+      name: 'licit-auth',
+      version: 2,
+      storage: safeStorage,
+      partialize: (s) => ({ token: s.token, me: s.me, meta: s.meta }),
+      // Versiones anteriores guardaban otro contrato (/api/...): se descartan.
+      migrate: () => ({ token: null, me: null, meta: null }) as unknown as AuthState,
+      onRehydrateStorage: () => (state) => {
+        if (state?.meta) setDisplayTimeZone(state.meta.display_timezone)
+      },
+    },
   ),
 )
+
+/** ¿El usuario actual tiene el permiso? (El backend vuelve a validarlo en cada petición.) */
+export function useCan(perm: Permission): boolean {
+  return useAuth((s) => s.me?.permissions.includes(perm) ?? false)
+}

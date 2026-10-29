@@ -1,50 +1,48 @@
-from fastapi import APIRouter, Depends, HTTPException
+from datetime import datetime, timezone
+
+from fastapi import APIRouter, Depends
 from fastapi.security import OAuth2PasswordRequestForm
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core import config
 from app.core.database import get_db
-from app.core.security import (
-    create_access_token,
-    get_current_user,
-    get_password_hash,
-    require_roles,
-    verify_password,
-)
-from app.models.user import Role, User
-from app.schemas.user import Token, UserCreate, UserOut
+from app.core.errors import AppError
+from app.core.permissions import ROLE_LABELS, permissions_for
+from app.core.security import ACCESS_TOKEN_EXPIRE_MINUTES, create_access_token, get_current_user, verify_password
+from app.models import Organization, User
+from app.schemas.v1 import Me, Meta, Token
+from app.services import audit
 
-router = APIRouter(prefix="/api/auth", tags=["auth"])
+router = APIRouter(prefix="/api/v1", tags=["identidad"])
 
 
-@router.post("/login", response_model=Token)
+@router.post("/auth/login", response_model=Token)
 def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.email == form.username.lower()).first()
+    user = db.scalars(select(User).where(User.email == form.username.strip().lower())).first()
     if not user or not user.is_active or not verify_password(form.password, user.hashed_password):
-        raise HTTPException(status_code=401, detail="Correo o contraseña incorrectos")
-    return Token(access_token=create_access_token(user.email))
-
-
-@router.get("/me", response_model=UserOut)
-def me(user: User = Depends(get_current_user)):
-    return user
-
-
-@router.post("/users", response_model=UserOut, status_code=201)
-def create_user(
-    payload: UserCreate,
-    db: Session = Depends(get_db),
-    _admin: User = Depends(require_roles(Role.ADMIN.value)),
-):
-    email = payload.email.lower()
-    if db.query(User).filter(User.email == email).first():
-        raise HTTPException(status_code=409, detail="Ese correo ya está registrado")
-    user = User(
-        email=email,
-        full_name=payload.full_name,
-        hashed_password=get_password_hash(payload.password),
-        role=payload.role.value,
-    )
-    db.add(user)
+        raise AppError(401, "invalid_credentials", "Correo o contraseña incorrectos")
+    audit.record(db, organization_id=user.organization_id, actor_id=user.id, action="auth.login",
+                 resource_type="user", resource_id=user.id)
     db.commit()
-    db.refresh(user)
-    return user
+    return Token(access_token=create_access_token(user.id), expires_in=ACCESS_TOKEN_EXPIRE_MINUTES * 60)
+
+
+@router.get("/auth/me", response_model=Me)
+def me(user: User = Depends(get_current_user)):
+    return Me(
+        id=user.id, email=user.email, full_name=user.full_name, is_active=user.is_active,
+        role_names=user.role_names, organization_id=user.organization_id,
+        permissions=sorted(p.value for p in permissions_for(user.role_names)),
+    )
+
+
+@router.get("/meta", response_model=Meta)
+def meta(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    org = db.get(Organization, user.organization_id)
+    return Meta(
+        organization=org.name, demo_mode=org.demo_mode, demo_base_date=config.DEMO_BASE_DATE,
+        watermark=config.WATERMARK, display_timezone=config.DISPLAY_TIMEZONE,
+        freshness_ttl_hours=config.FRESHNESS_TTL_HOURS, server_time=datetime.now(timezone.utc),
+        roles={r.value: label for r, label in ROLE_LABELS.items()},
+    )

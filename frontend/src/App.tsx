@@ -1,13 +1,14 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
-import { useAuth } from '@/store/auth'
 import Layout from '@/components/Layout'
+import SessionGate from '@/components/SessionGate'
 import Login from '@/pages/Login'
-import Licitaciones from '@/pages/Licitaciones'
-
-function RequireAuth({ children }: { children: JSX.Element }) {
-  const token = useAuth((s) => s.token)
-  return token ? children : <Navigate to="/login" replace />
-}
+import Radar from '@/pages/Radar'
+import OpportunityDetail from '@/pages/OpportunityDetail'
+import Catalog from '@/pages/Catalog'
+import Documents from '@/pages/Documents'
+import Tasks from '@/pages/Tasks'
+import Audit from '@/pages/Audit'
+import Operations from '@/pages/Operations'
 
 export default function App() {
   return (
@@ -15,15 +16,21 @@ export default function App() {
       <Route path="/login" element={<Login />} />
       <Route
         element={
-          <RequireAuth>
+          <SessionGate>
             <Layout />
-          </RequireAuth>
+          </SessionGate>
         }
       >
-        <Route path="/" element={<Navigate to="/licitaciones" replace />} />
-        <Route path="/licitaciones" element={<Licitaciones />} />
+        <Route index element={<Navigate to="/radar" replace />} />
+        <Route path="/radar" element={<Radar />} />
+        <Route path="/oportunidades/:id" element={<OpportunityDetail />} />
+        <Route path="/catalogo" element={<Catalog />} />
+        <Route path="/documentos" element={<Documents />} />
+        <Route path="/pendientes" element={<Tasks />} />
+        <Route path="/bitacora" element={<Audit />} />
+        <Route path="/operacion" element={<Operations />} />
       </Route>
-      <Route path="*" element={<Navigate to="/" replace />} />
+      <Route path="*" element={<Navigate to="/radar" replace />} />
     </Routes>
   )
 }

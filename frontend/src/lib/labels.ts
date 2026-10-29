@@ -1,0 +1,191 @@
+/** Etiquetas en español (México) para los códigos que devuelve la API. */
+import type { DataKind } from '@/lib/types'
+
+/** Si el código no está mapeado se muestra legible, sin inventar significado. */
+export function humanize(code: string | null | undefined): string {
+  if (!code) return ''
+  const s = code.replace(/[_.]/g, ' ').trim()
+  return s.charAt(0).toUpperCase() + s.slice(1)
+}
+
+function lookup(map: Record<string, string>, code: string | null | undefined): string {
+  if (!code) return ''
+  return map[code] ?? humanize(code)
+}
+
+export const DATA_KIND_LABEL: Record<DataKind, string> = {
+  REAL: 'Real',
+  HISTORICAL: 'Histórico',
+  SYNTHETIC: 'Simulado',
+}
+
+export const DATA_KIND_CHIP_LABEL: Record<DataKind, string> = {
+  REAL: 'REAL',
+  HISTORICAL: 'HISTÓRICO',
+  SYNTHETIC: 'SIMULADO',
+}
+
+export const DATA_KIND_HINT: Record<DataKind, string> = {
+  REAL: 'Procedimiento consultado en una fuente oficial.',
+  HISTORICAL: 'Referencia pública pasada; no es una oportunidad abierta.',
+  SYNTHETIC: 'Escenario ficticio para la demostración; no existe en ninguna fuente.',
+}
+
+const PROCEDURE_TYPE: Record<string, string> = {
+  licitacion_publica: 'Licitación pública',
+  invitacion_3: 'Invitación a cuando menos tres personas',
+  adjudicacion_directa: 'Adjudicación directa',
+}
+export const procedureTypeLabel = (c: string | null | undefined) => lookup(PROCEDURE_TYPE, c)
+
+const CHARACTER: Record<string, string> = {
+  nacional: 'Nacional',
+  internacional_tlc: 'Internacional bajo tratados',
+  internacional_abierta: 'Internacional abierta',
+}
+export const characterLabel = (c: string | null | undefined) => lookup(CHARACTER, c)
+
+const SCOPE: Record<string, string> = {
+  empresa: 'Empresa',
+  producto: 'Producto',
+  expediente: 'Expediente',
+  partida: 'Partida',
+  servicio: 'Servicio',
+}
+export const scopeLabel = (c: string | null | undefined) => lookup(SCOPE, c)
+
+const REQ_TYPE: Record<string, string> = {
+  tecnico: 'Técnico',
+  documental: 'Documental',
+  servicio: 'Servicio',
+  capacidad: 'Capacidad',
+  administrativo: 'Administrativo',
+}
+export const reqTypeLabel = (c: string | null | undefined) => lookup(REQ_TYPE, c)
+
+const OPERATOR: Record<string, string> = { eq: '=', gte: '≥', lte: '≤', gt: '>', lt: '<' }
+export const operatorSymbol = (c: string | null | undefined) => (c ? OPERATOR[c] ?? c : '=')
+
+const SOURCE_METHOD: Record<string, string> = {
+  manual: 'Carga manual',
+  scraper: 'Adaptador en servidor',
+  api: 'API',
+  fixture: 'Datos de demostración',
+}
+export const sourceMethodLabel = (c: string | null | undefined) => lookup(SOURCE_METHOD, c)
+
+const DOC_TYPE: Record<string, string> = {
+  certificado: 'Certificado',
+  ficha_tecnica: 'Ficha técnica',
+  carta: 'Carta',
+  registro: 'Registro',
+}
+export const docTypeLabel = (c: string | null | undefined) => lookup(DOC_TYPE, c)
+
+const EVIDENCE_DECISION: Record<string, string> = {
+  propuesta: 'Propuesta (sin revisar)',
+  aceptada: 'Aceptada',
+  rechazada: 'Rechazada',
+}
+export const evidenceDecisionLabel = (c: string | null | undefined) => lookup(EVIDENCE_DECISION, c)
+
+const RESULT: Record<string, string> = {
+  desconocido: 'Desconocido',
+  unknown: 'Desconocido',
+  adjudicado: 'Adjudicado',
+  desierto: 'Desierto',
+  cancelado: 'Cancelado',
+}
+export const resultLabel = (c: string | null | undefined) => lookup(RESULT, c)
+
+const VERIFICATION: Record<string, string> = {
+  por_verificar: 'Por verificar',
+  verificada: 'Verificada',
+  desactualizada: 'Desactualizada',
+  fuente_inaccesible: 'Fuente inaccesible',
+  simulada: 'Simulada',
+}
+export const verificationLabel = (c: string | null | undefined) => lookup(VERIFICATION, c)
+
+const RESOURCE_TYPE: Record<string, string> = {
+  opportunity: 'Oportunidad',
+  requirement: 'Requisito',
+  task: 'Actividad',
+  document: 'Documento',
+  product: 'Producto',
+  user: 'Usuario',
+  organization: 'Organización',
+  source: 'Fuente',
+}
+export const resourceTypeLabel = (c: string | null | undefined) => lookup(RESOURCE_TYPE, c)
+
+const AUDIT_ACTION: Record<string, string> = {
+  'auth.login': 'Inicio de sesión',
+  'opportunity.update': 'Oportunidad actualizada',
+  'demo.reset': 'Reinicio del demo',
+}
+export const auditActionLabel = (c: string) => AUDIT_ACTION[c] ?? c
+
+const FIELD: Record<string, string> = {
+  owner_id: 'Responsable',
+  notes: 'Notas',
+  families: 'Familias',
+  status: 'Estado',
+  demo_base_date: 'Fecha base',
+  variants: 'Variantes',
+  historical: 'Referencias históricas',
+  scenarios: 'Escenarios',
+  documents: 'Documentos',
+  requirements: 'Requisitos',
+  tasks: 'Actividades',
+}
+export const fieldLabel = (c: string) => FIELD[c] ?? c
+
+/** Atributos técnicos comparables: etiqueta y unidad canónica cuando el dato no la trae. */
+const ATTRIBUTE: Record<string, { label: string; unit?: string }> = {
+  material: { label: 'Material' },
+  holes: { label: 'Orificios', unit: 'orificios' },
+  size_demo: { label: 'Talla (demo)' },
+  diameter_mm: { label: 'Diámetro', unit: 'mm' },
+  length_mm: { label: 'Longitud', unit: 'mm' },
+  width_mm: { label: 'Ancho', unit: 'mm' },
+  stock_demo: { label: 'Existencia (simulada)' },
+}
+export const attributeLabel = (key: string) => ATTRIBUTE[key]?.label ?? humanize(key)
+export const attributeUnit = (key: string) => ATTRIBUTE[key]?.unit
+
+/** Entidades federativas de México (catálogo oficial de 32 entidades). */
+export const MX_STATES = [
+  'Aguascalientes',
+  'Baja California',
+  'Baja California Sur',
+  'Campeche',
+  'Chiapas',
+  'Chihuahua',
+  'Ciudad de México',
+  'Coahuila',
+  'Colima',
+  'Durango',
+  'Estado de México',
+  'Guanajuato',
+  'Guerrero',
+  'Hidalgo',
+  'Jalisco',
+  'Michoacán',
+  'Morelos',
+  'Nayarit',
+  'Nuevo León',
+  'Oaxaca',
+  'Puebla',
+  'Querétaro',
+  'Quintana Roo',
+  'San Luis Potosí',
+  'Sinaloa',
+  'Sonora',
+  'Tabasco',
+  'Tamaulipas',
+  'Tlaxcala',
+  'Veracruz',
+  'Yucatán',
+  'Zacatecas',
+]

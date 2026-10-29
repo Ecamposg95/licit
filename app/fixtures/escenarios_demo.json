@@ -1,0 +1,138 @@
+{
+  "schema_version": "1.0",
+  "notice": "Complemento de datos_demo.json. Agrega partidas y reasigna el texto de los 20 requisitos para que cada escenario muestre lo que describe su título (ver docs/adr/ADR-002-fixtures.md). Todo es ficticio.",
+  "scenarios": {
+    "DEMO-LIC-001": {
+      "state": "Querétaro",
+      "procedure_type": "licitacion_publica",
+      "character": "nacional",
+      "families": ["Osteosíntesis"],
+      "questions_offset_days": 5,
+      "ruling_offset_days": 21,
+      "verification_status": "simulada",
+      "lots": [
+        {"number": "1", "description": "Placa bloqueada de titanio, 6 orificios", "family": "Osteosíntesis", "quantity": "40", "unit": "pieza",
+         "specs": {"material": {"value": "titanio", "operator": "eq"}, "holes": {"value": 6, "unit": "orificios", "operator": "eq"}},
+         "proposed_variant": "DEMO-PLA-001"},
+        {"number": "2", "description": "Placa bloqueada de titanio, 12 orificios", "family": "Osteosíntesis", "quantity": "20", "unit": "pieza",
+         "specs": {"material": {"value": "titanio", "operator": "eq"}, "holes": {"value": 12, "unit": "orificios", "operator": "eq"}},
+         "proposed_variant": "DEMO-PLA-003"},
+        {"number": "3", "description": "Clavo intramedular de titanio, diámetro 10 mm", "family": "Osteosíntesis", "quantity": "15", "unit": "pieza",
+         "specs": {"material": {"value": "titanio", "operator": "eq"}, "diameter_mm": {"value": 10, "unit": "mm", "operator": "eq"}},
+         "proposed_variant": "DEMO-CLA-001"}
+      ]
+    },
+    "DEMO-LIC-002": {
+      "state": "Jalisco", "procedure_type": "licitacion_publica", "character": "nacional",
+      "families": ["Osteosíntesis"], "verification_status": "simulada",
+      "lots": [
+        {"number": "1", "description": "Placa bloqueada de titanio, 6 orificios (sin tolerancia indicada)", "family": "Osteosíntesis", "quantity": "30", "unit": "pieza",
+         "specs": {"material": {"value": "titanio", "operator": "eq"}, "holes": {"value": 6, "unit": "orificios", "operator": "eq"}},
+         "proposed_variant": "DEMO-PLA-002"}
+      ]
+    },
+    "DEMO-LIC-003": {
+      "state": "Guanajuato", "procedure_type": "licitacion_publica", "character": "nacional",
+      "families": ["Artroplastia de cadera"], "verification_status": "simulada",
+      "lots": [
+        {"number": "1", "description": "Componente acetabular de titanio", "family": "Artroplastia de cadera", "quantity": "10", "unit": "pieza",
+         "specs": {"material": {"value": "titanio", "operator": "eq"}},
+         "proposed_variant": "DEMO-CAD-001"}
+      ]
+    },
+    "DEMO-LIC-004": {
+      "state": "Michoacán", "procedure_type": "invitacion_3", "character": "nacional",
+      "families": ["Osteosíntesis"], "verification_status": "simulada",
+      "lots": [
+        {"number": "1", "description": "Clavo intramedular de titanio", "family": "Osteosíntesis", "quantity": "25", "unit": "pieza",
+         "specs": {"material": {"value": "titanio", "operator": "eq"}},
+         "proposed_variant": "DEMO-CLA-002"}
+      ]
+    },
+    "DEMO-LIC-005": {
+      "state": "Ciudad de México", "procedure_type": "licitacion_publica", "character": "nacional",
+      "families": ["Artroplastia de rodilla", "Instrumental"], "verification_status": "simulada",
+      "delivery_offset_days": 120,
+      "lots": [
+        {"number": "1", "description": "Componente femoral de rodilla", "family": "Artroplastia de rodilla", "quantity": "12", "unit": "pieza",
+         "specs": {}, "proposed_variant": "DEMO-ROD-001"},
+        {"number": "2", "description": "Servicio de instrumentista y préstamo de instrumental en quirófano", "family": "Instrumental", "quantity": "12", "unit": "servicio",
+         "specs": {}, "proposed_variant": null}
+      ]
+    },
+    "DEMO-LIC-006": {
+      "state": "San Luis Potosí", "procedure_type": "licitacion_publica", "character": "nacional",
+      "families": ["Artroplastia de rodilla"], "verification_status": "simulada",
+      "lots": [
+        {"number": "1", "description": "Componente tibial de rodilla, entrega única a 30 días", "family": "Artroplastia de rodilla", "quantity": "200", "unit": "pieza",
+         "specs": {"stock_demo": {"value": 200, "unit": "pieza", "operator": "gte"}},
+         "proposed_variant": "DEMO-ROD-002"}
+      ]
+    },
+    "DEMO-LIC-007": {
+      "state": "Nayarit", "procedure_type": "adjudicacion_directa", "character": "nacional",
+      "families": ["Columna"], "verification_status": "por_verificar",
+      "lots": [
+        {"number": "1", "description": "Sistema de fijación de columna", "family": "Columna", "quantity": "8", "unit": "pieza",
+         "specs": {"material": {"value": "titanio", "operator": "eq"}}, "proposed_variant": "DEMO-COL-001"}
+      ]
+    },
+    "DEMO-LIC-008": {
+      "state": "Colima", "procedure_type": "licitacion_publica", "character": "nacional",
+      "families": ["Instrumental"], "verification_status": "fuente_inaccesible",
+      "source_error": "Simulación: el portal de origen no respondió en el tiempo límite. Usa importación manual.",
+      "lots": [
+        {"number": "1", "description": "Set de instrumental ortopédico", "family": "Instrumental", "quantity": "3", "unit": "pieza",
+         "specs": {}, "proposed_variant": "DEMO-INS-001"}
+      ]
+    }
+  },
+  "requirements": [
+    {"id": "DEMO-REQ-001", "opportunity_id": "DEMO-LIC-001", "lot": "1", "text": "Placa fabricada en titanio", "req_type": "tecnico", "scope": "partida", "attribute": "material", "operator": "eq", "expected_value": "titanio", "status": "pendiente", "page": 1},
+    {"id": "DEMO-REQ-002", "opportunity_id": "DEMO-LIC-001", "lot": "1", "text": "Placa con 6 orificios", "req_type": "tecnico", "scope": "partida", "attribute": "holes", "operator": "eq", "expected_value": "6", "unit": "orificios", "status": "pendiente", "page": 1},
+    {"id": "DEMO-REQ-003", "opportunity_id": "DEMO-LIC-001", "lot": "2", "text": "Placa con 12 orificios", "req_type": "tecnico", "scope": "partida", "attribute": "holes", "operator": "eq", "expected_value": "12", "unit": "orificios", "status": "pendiente", "page": 2},
+    {"id": "DEMO-REQ-004", "opportunity_id": "DEMO-LIC-001", "lot": "3", "text": "Clavo con diámetro de 10 mm", "req_type": "tecnico", "scope": "partida", "attribute": "diameter_mm", "operator": "eq", "expected_value": "10", "unit": "mm", "status": "desconocido", "status_reason": "El catálogo no declara diámetro para la variante propuesta.", "page": 2},
+    {"id": "DEMO-REQ-005", "opportunity_id": "DEMO-LIC-001", "lot": "1", "text": "Ficha técnica del producto propuesto", "req_type": "documental", "scope": "producto", "status": "faltante", "next_action": "Asignar a un analista e incorporar la ficha técnica", "page": 3},
+    {"id": "DEMO-REQ-006", "opportunity_id": "DEMO-LIC-001", "lot": null, "text": "Evidencia de capacidad de entrega", "req_type": "capacidad", "scope": "empresa", "status": "faltante", "next_action": "Solicitar a planta la evidencia; no se afirma disponibilidad real", "page": 3},
+    {"id": "DEMO-REQ-007", "opportunity_id": "DEMO-LIC-001", "lot": "1", "text": "Registro sanitario vigente del producto ofertado", "req_type": "documental", "scope": "producto", "status": "faltante", "next_action": "Incorporar desde la fuente legítima; el sistema no genera registros", "page": 4},
+    {"id": "DEMO-REQ-008", "opportunity_id": "DEMO-LIC-002", "lot": "1", "text": "Placa con 6 orificios; las bases no indican tolerancia", "req_type": "tecnico", "scope": "partida", "attribute": "holes", "operator": "eq", "expected_value": "6", "unit": "orificios", "status": "incumple", "status_reason": "La variante propuesta DEMO-PLA-002 declara 8 orificios y no hay tolerancia documentada. No se asume equivalencia clínica.", "page": 1},
+    {"id": "DEMO-REQ-009", "opportunity_id": "DEMO-LIC-002", "lot": "1", "text": "Placa fabricada en titanio", "req_type": "tecnico", "scope": "partida", "attribute": "material", "operator": "eq", "expected_value": "titanio", "status": "pendiente", "page": 1},
+    {"id": "DEMO-REQ-010", "opportunity_id": "DEMO-LIC-003", "lot": "1", "text": "Componente fabricado en titanio", "req_type": "tecnico", "scope": "partida", "attribute": "material", "operator": "eq", "expected_value": "titanio", "status": "desconocido", "status_reason": "El catálogo declara material «por validar»; no se infiere del nombre comercial.", "page": 1},
+    {"id": "DEMO-REQ-011", "opportunity_id": "DEMO-LIC-003", "lot": "1", "text": "Ficha técnica con material declarado", "req_type": "documental", "scope": "producto", "status": "faltante", "page": 2},
+    {"id": "DEMO-REQ-012", "opportunity_id": "DEMO-LIC-004", "lot": null, "text": "Certificado de buenas prácticas vigente", "req_type": "documental", "scope": "empresa", "status": "vencido", "status_reason": "El documento vinculado venció 10 días antes de la fecha base.", "page": 1},
+    {"id": "DEMO-REQ-013", "opportunity_id": "DEMO-LIC-004", "lot": "1", "text": "Ficha técnica del producto propuesto", "req_type": "documental", "scope": "producto", "status": "pendiente", "page": 2},
+    {"id": "DEMO-REQ-014", "opportunity_id": "DEMO-LIC-005", "lot": "1", "text": "Certificado del fabricante vigente a la fecha de entrega", "req_type": "documental", "scope": "producto", "status": "vencido", "required_valid_until_offset_days": 120, "status_reason": "Vigente hoy, pero vence (+90 días) antes de la fecha de entrega exigida (+120 días).", "page": 1},
+    {"id": "DEMO-REQ-015", "opportunity_id": "DEMO-LIC-005", "lot": "2", "text": "Servicio de instrumentista en quirófano durante la vigencia del contrato", "req_type": "servicio", "scope": "servicio", "status": "desconocido", "status_reason": "El catálogo sólo contiene piezas; suministrar el implante no cubre el servicio.", "page": 2},
+    {"id": "DEMO-REQ-016", "opportunity_id": "DEMO-LIC-005", "lot": "2", "text": "Instrumental compatible con el implante propuesto", "req_type": "tecnico", "scope": "partida", "status": "desconocido", "page": 2},
+    {"id": "DEMO-REQ-017", "opportunity_id": "DEMO-LIC-006", "lot": "1", "text": "Entrega de 200 piezas en una sola exhibición a 30 días", "req_type": "capacidad", "scope": "partida", "attribute": "stock_demo", "operator": "gte", "expected_value": "200", "unit": "pieza", "status": "incumple", "status_reason": "Capacidad declarada simulada: 25 piezas. Dato ficticio; no confirma ni descarta disponibilidad real.", "page": 1},
+    {"id": "DEMO-REQ-018", "opportunity_id": "DEMO-LIC-007", "lot": "1", "text": "Sistema fabricado en titanio", "req_type": "tecnico", "scope": "partida", "attribute": "material", "operator": "eq", "expected_value": "titanio", "status": "pendiente", "page": 1},
+    {"id": "DEMO-REQ-019", "opportunity_id": "DEMO-LIC-008", "lot": "1", "text": "Ficha técnica del producto propuesto", "req_type": "documental", "scope": "producto", "status": "pendiente", "page": 1},
+    {"id": "DEMO-REQ-020", "opportunity_id": "DEMO-LIC-008", "lot": "1", "text": "Catálogo del fabricante", "req_type": "documental", "scope": "producto", "status": "desconocido", "status_reason": "No se pudieron descargar las bases completas; la obligatoriedad no es determinable.", "mandatory": null, "page": 1}
+  ],
+  "documents": {
+    "DEMO-DOC-001": {"label": "Certificado de buenas prácticas (ficticio)", "scope": "empresa", "doc_type": "certificado"},
+    "DEMO-DOC-002": {"label": "Certificado del fabricante · rodilla (ficticio)", "scope": "producto", "doc_type": "certificado", "product_sku": "DEMO-ROD-001"},
+    "DEMO-DOC-003": {"label": "Ficha técnica · clavo variante 2 (ficticia)", "scope": "producto", "doc_type": "ficha_tecnica", "product_sku": "DEMO-CLA-002"},
+    "DEMO-DOC-004": {"label": "Carta de garantía (modelo ficticio)", "scope": "empresa", "doc_type": "carta"},
+    "DEMO-DOC-005": {"label": "Constancia de capacidad de entrega (ficticia)", "scope": "empresa", "doc_type": "constancia"},
+    "DEMO-DOC-006": {"label": "Ficha técnica · placa variante 2 (ficticia)", "scope": "producto", "doc_type": "ficha_tecnica", "product_sku": "DEMO-PLA-002"},
+    "DEMO-DOC-007": {"label": "Ficha técnica · cadera variante 1, sin material declarado (ficticia)", "scope": "producto", "doc_type": "ficha_tecnica", "product_sku": "DEMO-CAD-001"},
+    "DEMO-DOC-008": {"label": "Catálogo del fabricante · instrumental (ficticio)", "scope": "producto", "doc_type": "catalogo", "product_sku": "DEMO-INS-001"},
+    "DEMO-DOC-009": {"label": "Opinión de cumplimiento (marcador ficticio)", "scope": "empresa", "doc_type": "constancia"},
+    "DEMO-DOC-010": {"label": "Ficha técnica · columna variante 1 (ficticia)", "scope": "producto", "doc_type": "ficha_tecnica", "product_sku": "DEMO-COL-001"},
+    "DEMO-DOC-011": {"label": "Bases ficticias del escenario DEMO-LIC-001", "scope": "expediente", "doc_type": "bases", "opportunity": "DEMO-LIC-001"},
+    "DEMO-DOC-012": {"label": "Ficha técnica · placa variante 1 (ficticia)", "scope": "producto", "doc_type": "ficha_tecnica", "product_sku": "DEMO-PLA-001"}
+  },
+  "evidence": [
+    {"requirement": "DEMO-REQ-012", "document": "DEMO-DOC-001", "page": 1, "fragment": "Vigencia: fecha base −10 días (ficticio)"},
+    {"requirement": "DEMO-REQ-014", "document": "DEMO-DOC-002", "page": 1, "fragment": "Vigencia: fecha base +90 días (ficticio)"},
+    {"requirement": "DEMO-REQ-010", "document": "DEMO-DOC-007", "page": 1, "fragment": "Material: no declarado"},
+    {"requirement": "DEMO-REQ-013", "document": "DEMO-DOC-003", "page": 1, "fragment": "Ficha técnica del clavo, variante 2"}
+  ],
+  "task_requirements": {
+    "DEMO-TASK-001": "DEMO-REQ-001", "DEMO-TASK-002": "DEMO-REQ-002", "DEMO-TASK-003": "DEMO-REQ-003",
+    "DEMO-TASK-004": "DEMO-REQ-004", "DEMO-TASK-005": "DEMO-REQ-007", "DEMO-TASK-006": "DEMO-REQ-009",
+    "DEMO-TASK-007": "DEMO-REQ-011", "DEMO-TASK-008": "DEMO-REQ-012", "DEMO-TASK-009": "DEMO-REQ-014",
+    "DEMO-TASK-010": "DEMO-REQ-017"
+  }
+}

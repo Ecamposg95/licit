@@ -4,17 +4,24 @@ export default {
   theme: {
     extend: {
       colors: {
-        brand: {
-          50: '#eef6fb',
-          100: '#d5e9f5',
-          500: '#1f78b4',
-          600: '#17649a',
-          700: '#124f7a',
-          900: '#0b2c44',
+        // Acento verde petróleo (task pack §5 "Diseño visual").
+        petrol: {
+          50: '#eef6f7',
+          100: '#d5e9ec',
+          200: '#acd2d8',
+          300: '#7bb3bd',
+          400: '#4a8f9c',
+          500: '#2a7080',
+          600: '#1a5a69',
+          700: '#0f4c5c',
+          800: '#0c3d4a',
+          900: '#0a2f39',
+          950: '#061d24',
         },
+        canvas: '#f4f6f6',
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
+        sans: ['"Public Sans"', 'system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'sans-serif'],
       },
     },
   },

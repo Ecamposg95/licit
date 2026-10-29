@@ -1,0 +1,814 @@
+{
+  "schema_version": "1.0",
+  "notice": "Datos de demostración. Los productos y escenarios no representan el catálogo ni la capacidad real de Dipromedic.",
+  "demo_base_date": "2026-10-28",
+  "products": [
+    {
+      "id": "DEMO-PLA-001",
+      "name": "Placa bloqueada demostración variante 1",
+      "family": "Osteosíntesis",
+      "data_kind": "SYNTHETIC",
+      "brand": "Marca ficticia",
+      "manufacturer": "Fabricante ficticio",
+      "attributes": {
+        "material": "titanio",
+        "holes": 6,
+        "size_demo": 1
+      },
+      "unit": "pieza",
+      "price_demo_mxn": "1500",
+      "stock_demo": 20,
+      "regulatory_reference": "DEMO-SIN-VALIDEZ"
+    },
+    {
+      "id": "DEMO-PLA-002",
+      "name": "Placa bloqueada demostración variante 2",
+      "family": "Osteosíntesis",
+      "data_kind": "SYNTHETIC",
+      "brand": "Marca ficticia",
+      "manufacturer": "Fabricante ficticio",
+      "attributes": {
+        "material": "titanio",
+        "holes": 8,
+        "size_demo": 2
+      },
+      "unit": "pieza",
+      "price_demo_mxn": "1800",
+      "stock_demo": 25,
+      "regulatory_reference": "DEMO-SIN-VALIDEZ"
+    },
+    {
+      "id": "DEMO-PLA-003",
+      "name": "Placa bloqueada demostración variante 3",
+      "family": "Osteosíntesis",
+      "data_kind": "SYNTHETIC",
+      "brand": "Marca ficticia",
+      "manufacturer": "Fabricante ficticio",
+      "attributes": {
+        "material": "titanio",
+        "holes": 10,
+        "size_demo": 3
+      },
+      "unit": "pieza",
+      "price_demo_mxn": "2100",
+      "stock_demo": 30,
+      "regulatory_reference": "DEMO-SIN-VALIDEZ"
+    },
+    {
+      "id": "DEMO-CLA-001",
+      "name": "Clavo intramedular demostración variante 1",
+      "family": "Osteosíntesis",
+      "data_kind": "SYNTHETIC",
+      "brand": "Marca ficticia",
+      "manufacturer": "Fabricante ficticio",
+      "attributes": {
+        "material": "titanio",
+        "holes": null,
+        "size_demo": 1
+      },
+      "unit": "pieza",
+      "price_demo_mxn": "4000",
+      "stock_demo": 20,
+      "regulatory_reference": "DEMO-SIN-VALIDEZ"
+    },
+    {
+      "id": "DEMO-CLA-002",
+      "name": "Clavo intramedular demostración variante 2",
+      "family": "Osteosíntesis",
+      "data_kind": "SYNTHETIC",
+      "brand": "Marca ficticia",
+      "manufacturer": "Fabricante ficticio",
+      "attributes": {
+        "material": "titanio",
+        "holes": null,
+        "size_demo": 2
+      },
+      "unit": "pieza",
+      "price_demo_mxn": "4300",
+      "stock_demo": 25,
+      "regulatory_reference": "DEMO-SIN-VALIDEZ"
+    },
+    {
+      "id": "DEMO-CLA-003",
+      "name": "Clavo intramedular demostración variante 3",
+      "family": "Osteosíntesis",
+      "data_kind": "SYNTHETIC",
+      "brand": "Marca ficticia",
+      "manufacturer": "Fabricante ficticio",
+      "attributes": {
+        "material": "titanio",
+        "holes": null,
+        "size_demo": 3
+      },
+      "unit": "pieza",
+      "price_demo_mxn": "4600",
+      "stock_demo": 30,
+      "regulatory_reference": "DEMO-SIN-VALIDEZ"
+    },
+    {
+      "id": "DEMO-CAD-001",
+      "name": "Componente de cadera demostración variante 1",
+      "family": "Artroplastia de cadera",
+      "data_kind": "SYNTHETIC",
+      "brand": "Marca ficticia",
+      "manufacturer": "Fabricante ficticio",
+      "attributes": {
+        "material": "por validar",
+        "holes": null,
+        "size_demo": 1
+      },
+      "unit": "pieza",
+      "price_demo_mxn": "6500",
+      "stock_demo": 20,
+      "regulatory_reference": "DEMO-SIN-VALIDEZ"
+    },
+    {
+      "id": "DEMO-CAD-002",
+      "name": "Componente de cadera demostración variante 2",
+      "family": "Artroplastia de cadera",
+      "data_kind": "SYNTHETIC",
+      "brand": "Marca ficticia",
+      "manufacturer": "Fabricante ficticio",
+      "attributes": {
+        "material": "por validar",
+        "holes": null,
+        "size_demo": 2
+      },
+      "unit": "pieza",
+      "price_demo_mxn": "6800",
+      "stock_demo": 25,
+      "regulatory_reference": "DEMO-SIN-VALIDEZ"
+    },
+    {
+      "id": "DEMO-CAD-003",
+      "name": "Componente de cadera demostración variante 3",
+      "family": "Artroplastia de cadera",
+      "data_kind": "SYNTHETIC",
+      "brand": "Marca ficticia",
+      "manufacturer": "Fabricante ficticio",
+      "attributes": {
+        "material": "por validar",
+        "holes": null,
+        "size_demo": 3
+      },
+      "unit": "pieza",
+      "price_demo_mxn": "7100",
+      "stock_demo": 30,
+      "regulatory_reference": "DEMO-SIN-VALIDEZ"
+    },
+    {
+      "id": "DEMO-ROD-001",
+      "name": "Componente de rodilla demostración variante 1",
+      "family": "Artroplastia de rodilla",
+      "data_kind": "SYNTHETIC",
+      "brand": "Marca ficticia",
+      "manufacturer": "Fabricante ficticio",
+      "attributes": {
+        "material": "por validar",
+        "holes": null,
+        "size_demo": 1
+      },
+      "unit": "pieza",
+      "price_demo_mxn": "9000",
+      "stock_demo": 20,
+      "regulatory_reference": "DEMO-SIN-VALIDEZ"
+    },
+    {
+      "id": "DEMO-ROD-002",
+      "name": "Componente de rodilla demostración variante 2",
+      "family": "Artroplastia de rodilla",
+      "data_kind": "SYNTHETIC",
+      "brand": "Marca ficticia",
+      "manufacturer": "Fabricante ficticio",
+      "attributes": {
+        "material": "por validar",
+        "holes": null,
+        "size_demo": 2
+      },
+      "unit": "pieza",
+      "price_demo_mxn": "9300",
+      "stock_demo": 25,
+      "regulatory_reference": "DEMO-SIN-VALIDEZ"
+    },
+    {
+      "id": "DEMO-ROD-003",
+      "name": "Componente de rodilla demostración variante 3",
+      "family": "Artroplastia de rodilla",
+      "data_kind": "SYNTHETIC",
+      "brand": "Marca ficticia",
+      "manufacturer": "Fabricante ficticio",
+      "attributes": {
+        "material": "por validar",
+        "holes": null,
+        "size_demo": 3
+      },
+      "unit": "pieza",
+      "price_demo_mxn": "9600",
+      "stock_demo": 30,
+      "regulatory_reference": "DEMO-SIN-VALIDEZ"
+    },
+    {
+      "id": "DEMO-COL-001",
+      "name": "Componente de columna demostración variante 1",
+      "family": "Columna",
+      "data_kind": "SYNTHETIC",
+      "brand": "Marca ficticia",
+      "manufacturer": "Fabricante ficticio",
+      "attributes": {
+        "material": "titanio",
+        "holes": null,
+        "size_demo": 1
+      },
+      "unit": "pieza",
+      "price_demo_mxn": "11500",
+      "stock_demo": 20,
+      "regulatory_reference": "DEMO-SIN-VALIDEZ"
+    },
+    {
+      "id": "DEMO-COL-002",
+      "name": "Componente de columna demostración variante 2",
+      "family": "Columna",
+      "data_kind": "SYNTHETIC",
+      "brand": "Marca ficticia",
+      "manufacturer": "Fabricante ficticio",
+      "attributes": {
+        "material": "titanio",
+        "holes": null,
+        "size_demo": 2
+      },
+      "unit": "pieza",
+      "price_demo_mxn": "11800",
+      "stock_demo": 25,
+      "regulatory_reference": "DEMO-SIN-VALIDEZ"
+    },
+    {
+      "id": "DEMO-COL-003",
+      "name": "Componente de columna demostración variante 3",
+      "family": "Columna",
+      "data_kind": "SYNTHETIC",
+      "brand": "Marca ficticia",
+      "manufacturer": "Fabricante ficticio",
+      "attributes": {
+        "material": "titanio",
+        "holes": null,
+        "size_demo": 3
+      },
+      "unit": "pieza",
+      "price_demo_mxn": "12100",
+      "stock_demo": 30,
+      "regulatory_reference": "DEMO-SIN-VALIDEZ"
+    },
+    {
+      "id": "DEMO-INS-001",
+      "name": "Instrumental ortopédico demostración variante 1",
+      "family": "Instrumental",
+      "data_kind": "SYNTHETIC",
+      "brand": "Marca ficticia",
+      "manufacturer": "Fabricante ficticio",
+      "attributes": {
+        "material": "por validar",
+        "holes": null,
+        "size_demo": 1
+      },
+      "unit": "pieza",
+      "price_demo_mxn": "14000",
+      "stock_demo": 20,
+      "regulatory_reference": "DEMO-SIN-VALIDEZ"
+    },
+    {
+      "id": "DEMO-INS-002",
+      "name": "Instrumental ortopédico demostración variante 2",
+      "family": "Instrumental",
+      "data_kind": "SYNTHETIC",
+      "brand": "Marca ficticia",
+      "manufacturer": "Fabricante ficticio",
+      "attributes": {
+        "material": "por validar",
+        "holes": null,
+        "size_demo": 2
+      },
+      "unit": "pieza",
+      "price_demo_mxn": "14300",
+      "stock_demo": 25,
+      "regulatory_reference": "DEMO-SIN-VALIDEZ"
+    },
+    {
+      "id": "DEMO-INS-003",
+      "name": "Instrumental ortopédico demostración variante 3",
+      "family": "Instrumental",
+      "data_kind": "SYNTHETIC",
+      "brand": "Marca ficticia",
+      "manufacturer": "Fabricante ficticio",
+      "attributes": {
+        "material": "por validar",
+        "holes": null,
+        "size_demo": 3
+      },
+      "unit": "pieza",
+      "price_demo_mxn": "14600",
+      "stock_demo": 30,
+      "regulatory_reference": "DEMO-SIN-VALIDEZ"
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "DEMO-LIC-001",
+      "title": "Coincidencia preliminar y documento faltante",
+      "buyer": "Institución ficticia 1",
+      "data_kind": "SYNTHETIC",
+      "official_url": null,
+      "scenario_status": "simulado",
+      "deadline_offset_days": 14,
+      "requires_human_review": true
+    },
+    {
+      "id": "DEMO-LIC-002",
+      "title": "Medida incompatible",
+      "buyer": "Institución ficticia 2",
+      "data_kind": "SYNTHETIC",
+      "official_url": null,
+      "scenario_status": "simulado",
+      "deadline_offset_days": 15,
+      "requires_human_review": true
+    },
+    {
+      "id": "DEMO-LIC-003",
+      "title": "Evidencia técnica ausente",
+      "buyer": "Institución ficticia 3",
+      "data_kind": "SYNTHETIC",
+      "official_url": null,
+      "scenario_status": "simulado",
+      "deadline_offset_days": 16,
+      "requires_human_review": true
+    },
+    {
+      "id": "DEMO-LIC-004",
+      "title": "Documento vencido",
+      "buyer": "Institución ficticia 4",
+      "data_kind": "SYNTHETIC",
+      "official_url": null,
+      "scenario_status": "simulado",
+      "deadline_offset_days": 17,
+      "requires_human_review": true
+    },
+    {
+      "id": "DEMO-LIC-005",
+      "title": "Vencimiento antes de entrega",
+      "buyer": "Institución ficticia 5",
+      "data_kind": "SYNTHETIC",
+      "official_url": null,
+      "scenario_status": "simulado",
+      "deadline_offset_days": 18,
+      "requires_human_review": true
+    },
+    {
+      "id": "DEMO-LIC-006",
+      "title": "Capacidad insuficiente",
+      "buyer": "Institución ficticia 6",
+      "data_kind": "SYNTHETIC",
+      "official_url": null,
+      "scenario_status": "simulado",
+      "deadline_offset_days": 19,
+      "requires_human_review": true
+    },
+    {
+      "id": "DEMO-LIC-007",
+      "title": "Fecha por verificar",
+      "buyer": "Institución ficticia 7",
+      "data_kind": "SYNTHETIC",
+      "official_url": null,
+      "scenario_status": "simulado",
+      "deadline_offset_days": null,
+      "requires_human_review": true
+    },
+    {
+      "id": "DEMO-LIC-008",
+      "title": "Fuente inaccesible",
+      "buyer": "Institución ficticia 8",
+      "data_kind": "SYNTHETIC",
+      "official_url": null,
+      "scenario_status": "simulado",
+      "deadline_offset_days": 21,
+      "requires_human_review": true
+    }
+  ],
+  "historical_references": [
+    {
+      "id": "LA-50-GYR-050GYR075-I-134-2026",
+      "title": "Referencia de osteosíntesis y endoprótesis Querétaro",
+      "opening_date": "2026-09-02",
+      "url": "https://sidof.segob.gob.mx/notas/docFuente/5797331",
+      "data_kind": "HISTORICAL",
+      "verification_scope": "resumen oficial",
+      "result": "unknown",
+      "checked_on": "2026-10-28",
+      "status": "fecha de presentación transcurrida"
+    },
+    {
+      "id": "LA-50-GYR-050GYR022-T-58-2026",
+      "title": "Referencia de suministro y colocación de implantes",
+      "opening_date": "2026-02-20",
+      "url": "https://sidof.segob.gob.mx/notas/docFuente/5779808",
+      "data_kind": "HISTORICAL",
+      "verification_scope": "resumen oficial",
+      "result": "unknown",
+      "checked_on": "2026-10-28",
+      "status": "fecha de presentación transcurrida"
+    },
+    {
+      "id": "LA-56-AYO-056AYO954-N-88-2026",
+      "title": "Referencia IMSS Bienestar Estado de México",
+      "opening_date": "2026-05-11",
+      "url": "https://sidof.segob.gob.mx/notas/docFuente/5786464",
+      "data_kind": "HISTORICAL",
+      "verification_scope": "resumen oficial",
+      "result": "unknown",
+      "checked_on": "2026-10-28",
+      "status": "fecha de presentación transcurrida"
+    }
+  ],
+  "requirements": [
+    {
+      "id": "DEMO-REQ-001",
+      "opportunity_id": "DEMO-LIC-001",
+      "text": "Ficha técnica del producto propuesto",
+      "mandatory": true,
+      "status": "pendiente",
+      "source": "Bases ficticias del escenario",
+      "page": 1,
+      "data_kind": "SYNTHETIC"
+    },
+    {
+      "id": "DEMO-REQ-002",
+      "opportunity_id": "DEMO-LIC-002",
+      "text": "Material titanio",
+      "mandatory": true,
+      "status": "desconocido",
+      "source": "Bases ficticias del escenario",
+      "page": 1,
+      "data_kind": "SYNTHETIC"
+    },
+    {
+      "id": "DEMO-REQ-003",
+      "opportunity_id": "DEMO-LIC-003",
+      "text": "Variante con seis orificios",
+      "mandatory": true,
+      "status": "faltante",
+      "source": "Bases ficticias del escenario",
+      "page": 1,
+      "data_kind": "SYNTHETIC"
+    },
+    {
+      "id": "DEMO-REQ-004",
+      "opportunity_id": "DEMO-LIC-004",
+      "text": "Evidencia de capacidad de entrega",
+      "mandatory": true,
+      "status": "vencido",
+      "source": "Bases ficticias del escenario",
+      "page": 1,
+      "data_kind": "SYNTHETIC"
+    },
+    {
+      "id": "DEMO-REQ-005",
+      "opportunity_id": "DEMO-LIC-005",
+      "text": "Instrumental compatible con el implante",
+      "mandatory": true,
+      "status": "incumple",
+      "source": "Bases ficticias del escenario",
+      "page": 1,
+      "data_kind": "SYNTHETIC"
+    },
+    {
+      "id": "DEMO-REQ-006",
+      "opportunity_id": "DEMO-LIC-006",
+      "text": "Ficha técnica del producto propuesto",
+      "mandatory": true,
+      "status": "pendiente",
+      "source": "Bases ficticias del escenario",
+      "page": 2,
+      "data_kind": "SYNTHETIC"
+    },
+    {
+      "id": "DEMO-REQ-007",
+      "opportunity_id": "DEMO-LIC-007",
+      "text": "Material titanio",
+      "mandatory": true,
+      "status": "desconocido",
+      "source": "Bases ficticias del escenario",
+      "page": 2,
+      "data_kind": "SYNTHETIC"
+    },
+    {
+      "id": "DEMO-REQ-008",
+      "opportunity_id": "DEMO-LIC-008",
+      "text": "Variante con seis orificios",
+      "mandatory": true,
+      "status": "faltante",
+      "source": "Bases ficticias del escenario",
+      "page": 2,
+      "data_kind": "SYNTHETIC"
+    },
+    {
+      "id": "DEMO-REQ-009",
+      "opportunity_id": "DEMO-LIC-001",
+      "text": "Evidencia de capacidad de entrega",
+      "mandatory": true,
+      "status": "vencido",
+      "source": "Bases ficticias del escenario",
+      "page": 2,
+      "data_kind": "SYNTHETIC"
+    },
+    {
+      "id": "DEMO-REQ-010",
+      "opportunity_id": "DEMO-LIC-002",
+      "text": "Instrumental compatible con el implante",
+      "mandatory": true,
+      "status": "incumple",
+      "source": "Bases ficticias del escenario",
+      "page": 2,
+      "data_kind": "SYNTHETIC"
+    },
+    {
+      "id": "DEMO-REQ-011",
+      "opportunity_id": "DEMO-LIC-003",
+      "text": "Ficha técnica del producto propuesto",
+      "mandatory": true,
+      "status": "pendiente",
+      "source": "Bases ficticias del escenario",
+      "page": 3,
+      "data_kind": "SYNTHETIC"
+    },
+    {
+      "id": "DEMO-REQ-012",
+      "opportunity_id": "DEMO-LIC-004",
+      "text": "Material titanio",
+      "mandatory": true,
+      "status": "desconocido",
+      "source": "Bases ficticias del escenario",
+      "page": 3,
+      "data_kind": "SYNTHETIC"
+    },
+    {
+      "id": "DEMO-REQ-013",
+      "opportunity_id": "DEMO-LIC-005",
+      "text": "Variante con seis orificios",
+      "mandatory": true,
+      "status": "faltante",
+      "source": "Bases ficticias del escenario",
+      "page": 3,
+      "data_kind": "SYNTHETIC"
+    },
+    {
+      "id": "DEMO-REQ-014",
+      "opportunity_id": "DEMO-LIC-006",
+      "text": "Evidencia de capacidad de entrega",
+      "mandatory": true,
+      "status": "vencido",
+      "source": "Bases ficticias del escenario",
+      "page": 3,
+      "data_kind": "SYNTHETIC"
+    },
+    {
+      "id": "DEMO-REQ-015",
+      "opportunity_id": "DEMO-LIC-007",
+      "text": "Instrumental compatible con el implante",
+      "mandatory": true,
+      "status": "incumple",
+      "source": "Bases ficticias del escenario",
+      "page": 3,
+      "data_kind": "SYNTHETIC"
+    },
+    {
+      "id": "DEMO-REQ-016",
+      "opportunity_id": "DEMO-LIC-008",
+      "text": "Ficha técnica del producto propuesto",
+      "mandatory": true,
+      "status": "pendiente",
+      "source": "Bases ficticias del escenario",
+      "page": 4,
+      "data_kind": "SYNTHETIC"
+    },
+    {
+      "id": "DEMO-REQ-017",
+      "opportunity_id": "DEMO-LIC-001",
+      "text": "Material titanio",
+      "mandatory": true,
+      "status": "desconocido",
+      "source": "Bases ficticias del escenario",
+      "page": 4,
+      "data_kind": "SYNTHETIC"
+    },
+    {
+      "id": "DEMO-REQ-018",
+      "opportunity_id": "DEMO-LIC-002",
+      "text": "Variante con seis orificios",
+      "mandatory": true,
+      "status": "faltante",
+      "source": "Bases ficticias del escenario",
+      "page": 4,
+      "data_kind": "SYNTHETIC"
+    },
+    {
+      "id": "DEMO-REQ-019",
+      "opportunity_id": "DEMO-LIC-003",
+      "text": "Evidencia de capacidad de entrega",
+      "mandatory": true,
+      "status": "vencido",
+      "source": "Bases ficticias del escenario",
+      "page": 4,
+      "data_kind": "SYNTHETIC"
+    },
+    {
+      "id": "DEMO-REQ-020",
+      "opportunity_id": "DEMO-LIC-004",
+      "text": "Instrumental compatible con el implante",
+      "mandatory": true,
+      "status": "incumple",
+      "source": "Bases ficticias del escenario",
+      "page": 4,
+      "data_kind": "SYNTHETIC"
+    }
+  ],
+  "document_metadata": [
+    {
+      "id": "DEMO-DOC-001",
+      "title": "Documento de prueba 1",
+      "data_kind": "SYNTHETIC",
+      "watermark": "DEMOSTRACIÓN · DATOS FICTICIOS · SIN VALIDEZ PARA PRESENTACIÓN",
+      "version": 1,
+      "valid_until_offset_days": -10,
+      "review_status": "pendiente"
+    },
+    {
+      "id": "DEMO-DOC-002",
+      "title": "Documento de prueba 2",
+      "data_kind": "SYNTHETIC",
+      "watermark": "DEMOSTRACIÓN · DATOS FICTICIOS · SIN VALIDEZ PARA PRESENTACIÓN",
+      "version": 1,
+      "valid_until_offset_days": 90,
+      "review_status": "pendiente"
+    },
+    {
+      "id": "DEMO-DOC-003",
+      "title": "Documento de prueba 3",
+      "data_kind": "SYNTHETIC",
+      "watermark": "DEMOSTRACIÓN · DATOS FICTICIOS · SIN VALIDEZ PARA PRESENTACIÓN",
+      "version": 1,
+      "valid_until_offset_days": 90,
+      "review_status": "pendiente"
+    },
+    {
+      "id": "DEMO-DOC-004",
+      "title": "Documento de prueba 4",
+      "data_kind": "SYNTHETIC",
+      "watermark": "DEMOSTRACIÓN · DATOS FICTICIOS · SIN VALIDEZ PARA PRESENTACIÓN",
+      "version": 1,
+      "valid_until_offset_days": 90,
+      "review_status": "pendiente"
+    },
+    {
+      "id": "DEMO-DOC-005",
+      "title": "Documento de prueba 5",
+      "data_kind": "SYNTHETIC",
+      "watermark": "DEMOSTRACIÓN · DATOS FICTICIOS · SIN VALIDEZ PARA PRESENTACIÓN",
+      "version": 1,
+      "valid_until_offset_days": -10,
+      "review_status": "pendiente"
+    },
+    {
+      "id": "DEMO-DOC-006",
+      "title": "Documento de prueba 6",
+      "data_kind": "SYNTHETIC",
+      "watermark": "DEMOSTRACIÓN · DATOS FICTICIOS · SIN VALIDEZ PARA PRESENTACIÓN",
+      "version": 1,
+      "valid_until_offset_days": 90,
+      "review_status": "pendiente"
+    },
+    {
+      "id": "DEMO-DOC-007",
+      "title": "Documento de prueba 7",
+      "data_kind": "SYNTHETIC",
+      "watermark": "DEMOSTRACIÓN · DATOS FICTICIOS · SIN VALIDEZ PARA PRESENTACIÓN",
+      "version": 1,
+      "valid_until_offset_days": 90,
+      "review_status": "pendiente"
+    },
+    {
+      "id": "DEMO-DOC-008",
+      "title": "Documento de prueba 8",
+      "data_kind": "SYNTHETIC",
+      "watermark": "DEMOSTRACIÓN · DATOS FICTICIOS · SIN VALIDEZ PARA PRESENTACIÓN",
+      "version": 1,
+      "valid_until_offset_days": 90,
+      "review_status": "pendiente"
+    },
+    {
+      "id": "DEMO-DOC-009",
+      "title": "Documento de prueba 9",
+      "data_kind": "SYNTHETIC",
+      "watermark": "DEMOSTRACIÓN · DATOS FICTICIOS · SIN VALIDEZ PARA PRESENTACIÓN",
+      "version": 1,
+      "valid_until_offset_days": -10,
+      "review_status": "pendiente"
+    },
+    {
+      "id": "DEMO-DOC-010",
+      "title": "Documento de prueba 10",
+      "data_kind": "SYNTHETIC",
+      "watermark": "DEMOSTRACIÓN · DATOS FICTICIOS · SIN VALIDEZ PARA PRESENTACIÓN",
+      "version": 1,
+      "valid_until_offset_days": 90,
+      "review_status": "pendiente"
+    },
+    {
+      "id": "DEMO-DOC-011",
+      "title": "Documento de prueba 11",
+      "data_kind": "SYNTHETIC",
+      "watermark": "DEMOSTRACIÓN · DATOS FICTICIOS · SIN VALIDEZ PARA PRESENTACIÓN",
+      "version": 1,
+      "valid_until_offset_days": 90,
+      "review_status": "pendiente"
+    },
+    {
+      "id": "DEMO-DOC-012",
+      "title": "Documento de prueba 12",
+      "data_kind": "SYNTHETIC",
+      "watermark": "DEMOSTRACIÓN · DATOS FICTICIOS · SIN VALIDEZ PARA PRESENTACIÓN",
+      "version": 1,
+      "valid_until_offset_days": 90,
+      "review_status": "pendiente"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "DEMO-TASK-001",
+      "requirement_id": "DEMO-REQ-001",
+      "assignee": "analista1@dipromedic.example",
+      "status": "pendiente",
+      "due_offset_days": 2
+    },
+    {
+      "id": "DEMO-TASK-002",
+      "requirement_id": "DEMO-REQ-002",
+      "assignee": "analista2@dipromedic.example",
+      "status": "pendiente",
+      "due_offset_days": 3
+    },
+    {
+      "id": "DEMO-TASK-003",
+      "requirement_id": "DEMO-REQ-003",
+      "assignee": "analista3@dipromedic.example",
+      "status": "pendiente",
+      "due_offset_days": 4
+    },
+    {
+      "id": "DEMO-TASK-004",
+      "requirement_id": "DEMO-REQ-004",
+      "assignee": "analista1@dipromedic.example",
+      "status": "pendiente",
+      "due_offset_days": 5
+    },
+    {
+      "id": "DEMO-TASK-005",
+      "requirement_id": "DEMO-REQ-005",
+      "assignee": "analista2@dipromedic.example",
+      "status": "pendiente",
+      "due_offset_days": 6
+    },
+    {
+      "id": "DEMO-TASK-006",
+      "requirement_id": "DEMO-REQ-006",
+      "assignee": "analista3@dipromedic.example",
+      "status": "pendiente",
+      "due_offset_days": 7
+    },
+    {
+      "id": "DEMO-TASK-007",
+      "requirement_id": "DEMO-REQ-007",
+      "assignee": "analista1@dipromedic.example",
+      "status": "pendiente",
+      "due_offset_days": 8
+    },
+    {
+      "id": "DEMO-TASK-008",
+      "requirement_id": "DEMO-REQ-008",
+      "assignee": "analista2@dipromedic.example",
+      "status": "pendiente",
+      "due_offset_days": 9
+    },
+    {
+      "id": "DEMO-TASK-009",
+      "requirement_id": "DEMO-REQ-009",
+      "assignee": "analista3@dipromedic.example",
+      "status": "pendiente",
+      "due_offset_days": 10
+    },
+    {
+      "id": "DEMO-TASK-010",
+      "requirement_id": "DEMO-REQ-010",
+      "assignee": "analista1@dipromedic.example",
+      "status": "pendiente",
+      "due_offset_days": 11
+    }
+  ]
+}

@@ -1,37 +1,56 @@
-# CLAUDE.md — Licit (licitaciones públicas · Grupo Dipromedic)
+# CLAUDE.md — Licit (demo comercial de licitaciones · Dipromedic)
 
-Plataforma para dar seguimiento a licitaciones públicas (IMSS, ISSSTE, SSA, estatales) en las que participa
-Grupo Dipromedic (implantes de trauma y ortopedia). Stack Atlas: **FastAPI + SQLAlchemy + PostgreSQL** (`app/`)
-y **React + Vite + TS + Tailwind + zustand** (`frontend/`), servido por el backend en prod. Deploy en **Railway** (Dockerfile multi-stage).
+Demo white label («Dipromedic · Demo») para descubrir procedimientos de compra pública de trauma y ortopedia,
+contrastar partidas con un catálogo ficticio, administrar evidencia y faltantes, y generar borradores.
+**La especificación manda:** `docs/spec/Task_Pack_Maestro_Dipromedic.md` (léela antes de cada feature).
+Decisiones en `docs/adr/`, avance en `docs/BACKLOG.md`, límites honestos en `docs/LIMITACIONES.md`.
 
-## Reglas
-1. Commit/push solo cuando el usuario lo pida; trabajar en `feat/*` / `fix/*`.
-2. **Sin Alembic.** Tablas nuevas: registrar el modelo en `app/models/__init__.py` (las crea `create_all`).
-   Columnas nuevas en tablas existentes: agregar a `MIGRACIONES` en `scripts/railway_init.py` (corre en cada deploy).
-3. PKs y FKs son UUID `String(36)`.
-4. Enums se guardan como `String` con su `.value`; los schemas usan `use_enum_values=True`.
+Stack: FastAPI + SQLAlchemy 2 + PostgreSQL + **Alembic** (`app/`, `alembic/`) · React + Vite + TS + Tailwind + zustand
+(`frontend/`), servida por el backend. Deploy en Railway con Dockerfile.
+
+## Reglas no negociables (task pack §2)
+1. `data_kind` (REAL / HISTORICAL / SYNTHETIC) está separado del estado. Un registro SYNTHETIC con fecha futura nunca es una oportunidad real.
+2. Ausencia de evidencia = `desconocido` o `pendiente`, **nunca** cumplimiento. Una evidencia nueva lleva el requisito a `en_revision`, no a `cumple_validado`.
+3. Nunca rellenar con fixtures una búsqueda vacía o fallida. Una fuente caída no significa que no haya licitaciones.
+4. No inventar APIs de Compras MX, fechas, registros sanitarios, firmas ni precios. Los campos desconocidos quedan en null.
+5. El dinero se maneja con `Decimal` y moneda explícita; la aritmética se hace en el backend.
+6. Los permisos se evalúan en el backend (`require_permission(Perm.X)`) y el acceso a un recurso pasa por `get_owned()` (aislamiento por organización).
+7. Cada cambio sensible se registra con `services.audit.record(...)` en la misma transacción.
+8. Lo ficticio lleva la marca `DEMOSTRACIÓN · DATOS FICTICIOS · SIN VALIDEZ PARA PRESENTACIÓN`; un registro ficticio usa `DEMO-SIN-VALIDEZ`.
+
+## Reglas de repo
+- Commit y push solo cuando el usuario lo pida; trabajar en `feat/*` o `fix/*`.
+- Esquema: modifica el modelo, corre `alembic revision --autogenerate -m "..."`, revisa el archivo y prueba `upgrade`/`downgrade`.
+- PKs y FKs son UUID `String(36)`. Los datos demo usan `stable_id()` (uuid5) para que el reinicio sea determinista.
+- Fixtures: `app/fixtures/datos_demo.json` (original, no se edita) + `escenarios_demo.json` (complemento, ver ADR-002).
 
 ## Comandos
 ```bash
 uv venv .venv && VIRTUAL_ENV=.venv uv pip install -r requirements.txt   # WSL: python3 no trae venv/pip, usar uv
-.venv/bin/python scripts/railway_init.py      # crea DB + seed admin (ADMIN_EMAIL / ADMIN_PASSWORD)
-.venv/bin/uvicorn app.main:app --reload       # :8000 · Swagger en /docs
-.venv/bin/python -m pytest -q                 # SQLite
-cd frontend && npm install && npm run dev     # :5173 (proxy /api → :8000)
-cd frontend && npm run build                  # tsc && vite build
-docker compose up -d                          # postgres:17 local
+export DEMO_USER_PASSWORD=demo-pass SESSION_SECRET=dev
+.venv/bin/alembic upgrade head                 # esquema
+.venv/bin/python scripts/bootstrap.py          # org, fuentes, usuarios demo y semilla (si está vacía)
+.venv/bin/python scripts/bootstrap.py --reset  # reinicio determinista del demo (no toca datos REAL)
+.venv/bin/uvicorn app.main:app --reload        # :8000 · Swagger en /docs
+.venv/bin/python -m pytest -q                  # SQLite
+TEST_DATABASE_URL=postgresql://postgres:toor@localhost:5433/licit .venv/bin/python -m pytest -q   # contra Postgres
+cd frontend && npm install && npm run dev      # :5173 (proxy /api → :8000)
+cd frontend && npm run build                   # tsc && vite build
+docker compose up -d                           # postgres:17 local
 ```
+Usuarios demo (`@dipromedic.example`): direccion, analista1..3, revisor, responsable, ti y presentador (todos los roles).
 
 ## Deploy (Railway)
 Proyecto `licit-dipromedic` (workspace Atlas Tech) · servicios `web` + `Postgres` · https://web-production-9afcc.up.railway.app
+El contenedor corre `alembic upgrade head && python scripts/bootstrap.py && uvicorn …`.
 
 **No corras `railway up` desde `/mnt/c`**: el CLI sube los archivos como bytes nulos al leerlos desde el FS de Windows.
-Copia los archivos versionados a un dir en el FS de Linux y despliega desde ahí:
+Copia los archivos versionados a un directorio del FS de Linux y despliega desde ahí:
 ```bash
 D=$(mktemp -d) && git ls-files -z | xargs -0 -I{} cp --parents {} $D/ && cd $D && \
 railway up --project c9c57e25-7e6d-45bf-89d6-361eb5647a96 --environment production --service web --detach
 ```
 Tampoco agregues `.dockerignore` mientras esto siga así: el builder también lo recibe corrupto.
 
-## Variables (Railway)
-`DATABASE_URL` (referencia al Postgres), `SECRET_KEY`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `CORS_ORIGINS`.
+Variables: `DATABASE_URL` (referencia a Postgres), `SESSION_SECRET`, `DEMO_USER_PASSWORD`, `DEMO_MODE`,
+`DEMO_BASE_DATE`, `CORS_ORIGINS`. Ver `.env.example`.
