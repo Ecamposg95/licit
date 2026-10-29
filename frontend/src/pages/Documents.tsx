@@ -1,12 +1,14 @@
 import { useMemo, useState } from 'react'
-import { FileUp } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { CircleCheck, FileUp, Search } from 'lucide-react'
 import PageHeader from '@/components/PageHeader'
 import DataKindChips, { usePersistentDataKinds } from '@/components/DataKindChips'
-import DocumentsTable, { isDocumentExpired } from '@/components/DocumentsTable'
+import { isDocumentExpired } from '@/components/DocumentsTable'
 import { UnavailableAction } from '@/components/Tooltip'
 import { EmptyState, ErrorPanel, Forbidden, TableSkeleton } from '@/components/feedback'
-import { listDocuments } from '@/lib/api'
-import { docTypeLabel } from '@/lib/labels'
+import DocumentList from '@/pages/documents/DocumentList'
+import UploadDialog from '@/pages/documents/UploadDialog'
+import { docTypeText, listDocuments, type DocumentRow } from '@/lib/api-documents'
 import { useApi } from '@/lib/useApi'
 import { useAuth, useCan } from '@/store/auth'
 
@@ -19,11 +21,15 @@ const SCOPES = [
 
 export default function Documents() {
   const canRead = useCan('document.read')
+  const canUpload = useCan('document.upload')
   const baseDate = useAuth((s) => s.meta?.demo_base_date)
   const [kinds, setKinds] = usePersistentDataKinds('licit.documents.dataKinds')
   const [scope, setScope] = useState('')
   const [docType, setDocType] = useState('')
+  const [text, setText] = useState('')
   const [onlyExpired, setOnlyExpired] = useState(false)
+  const [uploadOpen, setUploadOpen] = useState(false)
+  const [uploaded, setUploaded] = useState<DocumentRow | null>(null)
 
   const noKinds = kinds.length === 0
   const docs = useApi(() => listDocuments({ scope, data_kind: kinds }), [scope, kinds.join(',')], canRead && !noKinds)
@@ -32,13 +38,15 @@ export default function Documents() {
     () => Array.from(new Set((docs.data ?? []).map((d) => d.doc_type).filter((t): t is string => !!t))).sort(),
     [docs.data],
   )
-  const rows = useMemo(
-    () =>
-      (docs.data ?? []).filter(
-        (d) => (!docType || d.doc_type === docType) && (!onlyExpired || isDocumentExpired(d, baseDate)),
-      ),
-    [docs.data, docType, onlyExpired, baseDate],
-  )
+  const rows = useMemo(() => {
+    const q = text.trim().toLowerCase()
+    return (docs.data ?? []).filter(
+      (d) =>
+        (!docType || d.doc_type === docType) &&
+        (!onlyExpired || isDocumentExpired(d, baseDate)) &&
+        (!q || d.title.toLowerCase().includes(q) || (d.code ?? '').toLowerCase().includes(q)),
+    )
+  }, [docs.data, docType, onlyExpired, baseDate, text])
 
   if (!canRead) return <Forbidden permission="document.read" />
 
@@ -46,15 +54,34 @@ export default function Documents() {
     <div>
       <PageHeader
         title="Centro documental"
-        description="Biblioteca por ámbito de empresa, producto y expediente. La vigencia de documentos simulados se evalúa contra la fecha base del demo."
+        description="Biblioteca por ámbito de empresa, producto y expediente. Cada archivo se guarda con su huella SHA-256 y sus versiones; la vigencia de documentos simulados se evalúa contra la fecha base del demo."
         actions={
-          <UnavailableAction
-            label="Cargar documento"
-            icon={<FileUp aria-hidden="true" className="h-4 w-4" />}
-            reason="Carga con versiones y análisis: próxima entrega (E2)"
-          />
+          canUpload ? (
+            <button type="button" className="btn-primary" onClick={() => setUploadOpen(true)}>
+              <FileUp aria-hidden="true" className="h-4 w-4" />
+              Cargar documento
+            </button>
+          ) : (
+            <UnavailableAction
+              label="Cargar documento"
+              icon={<FileUp aria-hidden="true" className="h-4 w-4" />}
+              reason="Tu rol no tiene el permiso document.upload. Pide a Administración TI que revise tus roles."
+            />
+          )
         }
       />
+
+      {uploaded && (
+        <p role="status" className="mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-900">
+          <CircleCheck aria-hidden="true" className="h-4 w-4 shrink-0" />
+          <span>
+            Se cargó «{uploaded.title}» (versión {uploaded.current_version}). Queda pendiente de revisión.
+          </span>
+          <Link to={`/documentos/${uploaded.id}`} className="link">
+            Abrir en el visor
+          </Link>
+        </p>
+      )}
 
       <section aria-label="Filtros" className="card mb-4 p-4">
         <DataKindChips value={kinds} onChange={setKinds} />
@@ -69,7 +96,7 @@ export default function Documents() {
                   aria-pressed={scope === s.value}
                   onClick={() => setScope(s.value)}
                   className={`border-r border-slate-300 px-3 py-1.5 text-sm last:border-r-0 ${
-                    scope === s.value ? 'bg-petrol-700 font-medium text-white' : 'bg-white text-slate-700 hover:bg-slate-50'
+                    scope === s.value ? 'bg-dpm-blue-700 font-medium text-white' : 'bg-white text-slate-700 hover:bg-slate-50'
                   }`}
                 >
                   {s.label}
@@ -85,15 +112,24 @@ export default function Documents() {
               <option value="">Todos</option>
               {types.map((t) => (
                 <option key={t} value={t}>
-                  {docTypeLabel(t)}
+                  {docTypeText(t)}
                 </option>
               ))}
             </select>
           </div>
+          <div>
+            <label htmlFor="d-q" className="label">
+              Buscar por título o código
+            </label>
+            <div className="relative">
+              <Search aria-hidden="true" className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
+              <input id="d-q" type="search" className="input w-64 pl-8" value={text} onChange={(e) => setText(e.target.value)} />
+            </div>
+          </div>
           <label className="inline-flex items-center gap-2 pb-2 text-sm text-slate-700">
             <input
               type="checkbox"
-              className="h-4 w-4 rounded border-slate-300 text-petrol-700 focus:ring-petrol-500"
+              className="h-4 w-4 rounded border-slate-300 text-dpm-blue focus:ring-dpm-blue"
               checked={onlyExpired}
               onChange={(e) => setOnlyExpired(e.target.checked)}
             />
@@ -118,10 +154,21 @@ export default function Documents() {
             <p className="border-b border-slate-200 px-4 py-2.5 text-sm text-slate-600" aria-live="polite">
               {rows.length} {rows.length === 1 ? 'documento' : 'documentos'}
             </p>
-            <DocumentsTable docs={rows} />
+            <DocumentList docs={rows} />
           </>
         )}
       </div>
+
+      {canUpload && (
+        <UploadDialog
+          open={uploadOpen}
+          onClose={() => setUploadOpen(false)}
+          onUploaded={(doc) => {
+            setUploaded(doc)
+            docs.reload()
+          }}
+        />
+      )}
     </div>
   )
 }
