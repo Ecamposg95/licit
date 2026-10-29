@@ -103,7 +103,9 @@ def build_xlsx(snapshot: dict) -> bytes:
         for c, value in enumerate(row, 1):
             ws.cell(row=r, column=c, value=safe_cell(value)).alignment = Alignment(wrap_text=True, vertical="top")
 
-    # Partidas: los montos son números con formato; el servidor los calculó con Decimal.
+    # Partidas: el servidor calcula con Decimal y escribe números de hoja de cálculo, que Excel guarda en coma
+    # flotante (a estas magnitudes ida y vuelta da el mismo Decimal). El valor exacto de referencia es el texto de
+    # los DOCX y de la instantánea.
     ws = wb.create_sheet("Partidas")
     _sheet_header(ws, snapshot, ["Partida", "Descripción", "Cantidad", "Unidad", "Precio unitario", "Moneda",
                                 "Subtotal", "Origen del precio", "Variante propuesta"],
@@ -119,8 +121,11 @@ def build_xlsx(snapshot: dict) -> bytes:
         variant = lot["variant"]
         ws.cell(row=row, column=1, value=safe_cell(lot["number"]))
         ws.cell(row=row, column=2, value=safe_cell(lot["description"])).alignment = Alignment(wrap_text=True)
-        qty = ws.cell(row=row, column=3, value=Decimal(lot["quantity"]) if lot["quantity"] else pending("cantidad"))
-        qty.number_format = "#,##0.###"
+        quantity = Decimal(lot["quantity"]) if lot["quantity"] else None
+        qty = ws.cell(row=row, column=3, value=quantity if quantity is not None else pending("cantidad"))
+        # Entero sin punto final («40», no «40.»); decimales solo cuando la cantidad los tiene.
+        qty.number_format = "#,##0" if quantity is not None and quantity == quantity.to_integral_value() \
+            else "#,##0.###"
         ws.cell(row=row, column=4, value=safe_cell(lot["unit"] or pending("unidad")))
         price = ws.cell(row=row, column=5, value=Decimal(lot["unit_price"]) if has_price else pending("precio"))
         price.number_format = "#,##0.00"
@@ -134,6 +139,8 @@ def build_xlsx(snapshot: dict) -> bytes:
     row += 2
     ws.cell(row=row, column=2, value=totals["text"]).font = Font(bold=True)
     ws.cell(row=row + 1, column=2, value=snapshot["fiscal"]["text"])
+    ws.cell(row=row + 2, column=2, value="Los montos de esta hoja son números de hoja de cálculo (coma flotante); "
+                                         "el valor exacto de referencia es el texto de los documentos DOCX.")
 
     buf = io.BytesIO()
     wb.save(buf)

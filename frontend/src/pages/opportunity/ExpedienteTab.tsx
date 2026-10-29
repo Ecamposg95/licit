@@ -480,9 +480,18 @@ export default function ExpedienteTab({ opportunityId }: { opportunityId: string
             {job && <ProgressBar job={job} />}
             {job?.status === 'failed' && (
               <div role="alert" className="mt-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
-                <p className="font-medium">La generación falló. No se creó ningún borrador.</p>
-                <p className="mt-0.5 break-words">{job.error}</p>
-                <p className="mt-1 text-xs text-red-800/80">Vuelve a intentarlo con «Generar borrador».</p>
+                <p className="font-medium">
+                  No se pudo generar el expediente. Intenta de nuevo; si persiste, avisa a TI.
+                </p>
+                <p className="mt-0.5 text-xs text-red-800/80">No se creó ningún borrador.</p>
+                {job.error && (
+                  <details className="mt-2 text-xs">
+                    <summary className="cursor-pointer font-medium text-red-900">Detalle técnico</summary>
+                    <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-red-100 p-2 text-red-950">
+                      {job.error}
+                    </pre>
+                  </details>
+                )}
               </div>
             )}
             {startError && (

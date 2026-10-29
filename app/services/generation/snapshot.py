@@ -160,6 +160,11 @@ def _lots_block(opp: Opportunity, assessments: list[MatchAssessment]) -> tuple[l
     return out, warnings
 
 
+def _enumerate(items: list[str]) -> str:
+    """«2», «2 y 3», «2, 3 y 4»."""
+    return items[0] if len(items) == 1 else ", ".join(items[:-1]) + " y " + items[-1]
+
+
 def _totals(lots: list[dict]) -> dict:
     by_currency: dict[str, Decimal] = {}
     priced, pending = 0, []
@@ -182,8 +187,9 @@ def _totals(lots: list[dict]) -> dict:
     elif complete:
         text = f"Total: {money(known, currency)}"
     else:
-        text = (f"Total parcial: {money(known, currency)} (solo {priced} de {len(lots)} partidas con precio; "
-                f"faltan las partidas {', '.join(pending)})")
+        missing = (f"falta la partida {pending[0]}" if len(pending) == 1
+                   else f"faltan las partidas {_enumerate(pending)}")
+        text = f"Total parcial: {money(known, currency)} (solo {priced} de {len(lots)} partidas con precio; {missing})"
     return {
         "currency": currency, "known_total": str(known) if known is not None else None,
         "by_currency": {c: str(v) for c, v in sorted(by_currency.items())},

@@ -18,7 +18,7 @@ from app.models import (
     Organization, Product, Requirement, Variant,
 )
 from app.services import audit
-from app.services.generation.snapshot import FISCAL, build_snapshot, line_subtotal
+from app.services.generation.snapshot import FISCAL, _totals, build_snapshot, line_subtotal
 
 
 # ── Escenario propio (no depende del re-sembrado de E) ───────────────────────
@@ -107,10 +107,24 @@ def test_missing_price_warning_and_partial_total(db):
     totals = snap["totals"]
     assert totals["known_total"] == "60000.00" and totals["currency"] == "MXN"
     assert totals["complete"] is False and totals["lots_priced"] == 1 and totals["lots_pending"] == 2
-    assert "parcial" in totals["text"].lower() and "60,000.00 MXN" in totals["text"]
+    assert totals["text"] == ("Total parcial: 60,000.00 MXN (solo 1 de 3 partidas con precio; "
+                              "faltan las partidas 2 y 3)")
     assert snap["fiscal"] == FISCAL == {
         "status": "pendiente",
         "text": "Tratamiento fiscal pendiente de configurar; no se aplicaron impuestos."}
+
+
+def test_partial_total_text_uses_singular_and_plural(db):
+    opp = lic(db)
+    next(l for l in opp.lots if l.number == "3").proposed_variant_id = None
+    db.flush()
+    db.expire_all()
+    text = build_snapshot(db, lic(db))["totals"]["text"]
+    assert text == "Total parcial: 102,000.00 MXN (solo 2 de 3 partidas con precio; falta la partida 3)"
+    # Tres o más: «2, 3 y 4».
+    lots = [{"number": str(n), "subtotal": None if n > 1 else "10.00", "currency": "MXN", "unit_price": None,
+             "price_data_kind": None} for n in range(1, 5)]
+    assert _totals(lots)["text"].endswith("faltan las partidas 2, 3 y 4)")
 
 
 def test_complete_total_sums_known_subtotals(db):
@@ -336,21 +350,50 @@ def test_faltantes_assigns_owner_and_due_date_or_marks_pending(db):
     assert "[PENDIENTE: responsable]" in by_code[no_task]["Responsable"]
 
 
+FORBIDDEN_WORDS = re.compile(r"\b(firm\w*|sell\w*|presentad\w*)\b", re.IGNORECASE)
+
+
+def test_forbidden_word_regex_matches_words_not_substrings():
+    for bad in ("Firma", "firmado", "FIRMAS", "sello", "sellos", "Presentado", "presentada"):
+        assert FORBIDDEN_WORDS.search(f"texto {bad} texto"), bad
+    for fine in ("afirma", "no se afirma disponibilidad", "confirma ni descarta", "presentación", "información"):
+        assert not FORBIDDEN_WORDS.search(f"texto {fine} texto"), fine
+
+
+def _package_texts(snap: dict, data: bytes) -> dict[str, str]:
+    """Todo el texto de un paquete: DOCX (cuerpo, encabezado y pie), CSV, valores del XLSX, README y manifiesto."""
+    zf = open_zip(data)
+    texts = {}
+    for name in zf.namelist():
+        content = zf.read(name)
+        if name.endswith(".docx"):
+            parts = docx_parts(content)
+            texts[name] = "\n".join([parts["body"], parts["header"], parts["footer"]])
+        elif name == "matriz.xlsx":
+            wb = openpyxl.load_workbook(io.BytesIO(content))
+            texts[name] = "\n".join(str(c.value) for ws in wb.worksheets for row in ws.iter_rows() for c in row
+                                    if isinstance(c.value, str))
+        else:
+            texts[name] = content.decode("utf-8-sig")
+    return texts
+
+
 def test_no_signature_words(db):
-    # El texto de los datos se cita tal cual (las bases reales pueden decir «firmado»); aquí se neutraliza el único
-    # texto de los fixtures que contiene la subcadena, para probar que las plantillas no la introducen.
-    req = db.scalars(select(Requirement).where(Requirement.code == "DEMO-REQ-006")).one()
-    req.next_action = "Solicitar a planta la evidencia"
-    db.flush()
-    db.expire_all()
-    snap = snapshot_of(db)
-    forbidden = re.compile(r"firma|sello|presentado", re.IGNORECASE)
-    for key, data in render_all(snap).items():
-        parts = docx_parts(data)
-        text = "\n".join([parts["body"], parts["header"], parts["footer"]]).replace(config.WATERMARK, "")
-        assert not forbidden.search(text), (key, forbidden.search(text).group(0))
-        # Tampoco hay espacios para rubricas ni líneas de firma.
-        assert "____" not in text, key
+    """Sobre lo que realmente se siembra: ni las plantillas ni los datos citados traen firma, sello o «presentado»."""
+    codes = [c for (c,) in db.execute(select(Opportunity.external_id).order_by(Opportunity.external_id))]
+    assert len([c for c in codes if c.startswith("DEMO-LIC-")]) >= 8
+    seen_afirma = False
+    for code in codes:
+        snap = snapshot_of(db, code)
+        data, _ = build_package(snap, render_all(snap))
+        for name, text in _package_texts(snap, data).items():
+            text = text.replace(config.WATERMARK, "")
+            hit = FORBIDDEN_WORDS.search(text)
+            assert not hit, (code, name, hit.group(0))
+            # Tampoco hay espacios para rúbricas ni líneas de firma.
+            assert "____" not in text, (code, name)
+            seen_afirma = seen_afirma or "afirma" in text
+    assert seen_afirma    # el texto de DEMO-REQ-006 («no se afirma…») sí está en la salida y no cuenta como coincidencia
 
 
 def test_templates_render_with_minimal_data_and_mark_everything_pending(db):
@@ -512,7 +555,8 @@ def test_csv_utf8_bom_and_one_row_per_requirement(db):
     assert "[PENDIENTE: evidencia vinculada]" in by_code["DEMO-REQ-005"]
 
 
-def test_xlsx_has_exact_money_and_watermark(db):
+def test_xlsx_money_cells_are_numbers_with_format_and_the_watermark(db):
+    """El XLSX guarda montos como números de hoja de cálculo (coma flotante), no como texto exacto."""
     snap, data, _ = make_package(db)
     wb = openpyxl.load_workbook(io.BytesIO(open_zip(data).read("matriz.xlsx")))
     assert wb.sheetnames == ["Resumen", "Matriz", "Partidas"]
@@ -525,10 +569,47 @@ def test_xlsx_has_exact_money_and_watermark(db):
     row1 = [c.value for c in lots[4]]
     assert row1[0] == "1" and Decimal(str(row1[2])) == Decimal("40") and Decimal(str(row1[4])) == Decimal("1500")
     assert Decimal(str(row1[6])) == Decimal("60000.00") and row1[7].startswith("SIMULADO")
-    assert lots["G4"].number_format == "#,##0.00"
+    assert isinstance(row1[6], (int, float))
+    assert lots["G4"].number_format == "#,##0.00" and lots["E4"].number_format == "#,##0.00"
+    notes = [c.value for row in lots.iter_rows(min_row=8) for c in row if isinstance(c.value, str)]
+    assert any("coma flotante" in n and "DOCX" in n for n in notes)
     summary = {r[0].value: r[1].value for r in wb["Resumen"].iter_rows(min_row=3) if r[0].value}
     assert summary["Versión de datos"] == snap["data_version"]
     assert summary["Total"] == "Total: 162,000.00 MXN"
+
+
+def test_xlsx_money_round_trips_to_the_exact_decimal_on_awkward_cents(db):
+    opp = lic(db)
+    set_lot_price(db, opp, "1", "0.07")
+    set_lot_price(db, opp, "2", "99999999999.99")
+    lot3 = set_lot_price(db, opp, "3", "33.33")
+    lot3.quantity = Decimal("2.500")            # 2.5 × 33.33 = 83.325 → 83.33 (mitad hacia arriba)
+    db.flush()
+    db.expire_all()
+    snap, data, _ = make_package(db)
+    assert [l["subtotal"] for l in snap["lots"]] == ["2.80", "1999999999999.80", "83.33"]
+    lots = openpyxl.load_workbook(io.BytesIO(open_zip(data).read("matriz.xlsx")))["Partidas"]
+    rows = [[c.value for c in lots[r]] for r in (4, 5, 6)]
+    for lot, row in zip(snap["lots"], rows):
+        assert Decimal(str(row[2])) == Decimal(lot["quantity"]), lot["number"]
+        assert Decimal(str(row[4])) == Decimal(lot["unit_price"]), lot["number"]
+        assert Decimal(str(row[6])) == Decimal(lot["subtotal"]), lot["number"]
+    assert Decimal(str(rows[0][4])) == Decimal("0.07") and Decimal(str(rows[1][4])) == Decimal("99999999999.99")
+    # El texto exacto sigue siendo el de los DOCX.
+    body = docx_parts(render_all(snap)["propuesta_economica"])["body"]
+    assert "1,999,999,999,999.80" in body and "99,999,999,999.99" in body
+    assert "Total: 2,000,000,000,085.93 MXN" in body      # 2.80 + 1,999,999,999,999.80 + 83.33, sumado con Decimal
+
+
+def test_xlsx_integral_quantities_have_no_trailing_point(db):
+    opp = lic(db)
+    next(l for l in opp.lots if l.number == "3").quantity = Decimal("2.500")
+    db.flush()
+    db.expire_all()
+    _, data, _ = make_package(db)
+    lots = openpyxl.load_workbook(io.BytesIO(open_zip(data).read("matriz.xlsx")))["Partidas"]
+    assert lots["C4"].number_format == "#,##0" and lots["C5"].number_format == "#,##0"      # 40 y 20, no «40.»
+    assert lots["C6"].number_format == "#,##0.###"                                          # 2.5
 
 
 def test_spreadsheet_formula_injection_is_neutralised(db):
