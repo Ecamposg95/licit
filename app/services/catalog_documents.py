@@ -1,8 +1,9 @@
 """Ingesta de los PDFs del catálogo de Dipromedic y Traufix como evidencia REAL (frente D5).
 
-Los PDFs propios (técnicas quirúrgicas, folletos y catálogos de Dipromedic/Traufix) se guardan con su SHA-256 para
-poder citarlos por página. Los de otras marcas (Corentec, Biotechni, Anton-Hipp, IOT, Caleb…) solo se enlazan,
-aunque el archivo viva en dipromedic.com: su reutilización no está cubierta por el aviso de Dipromedic.
+Los PDFs propios (técnicas quirúrgicas, folletos y catálogos de Dipromedic/Traufix) de hasta 25 MB se guardan con
+su SHA-256 para poder citarlos por página; los más grandes se crean como enlace a su sitio de origen. Los de otras
+marcas (Corentec, Biotechni, Anton-Hipp, IOT, Caleb…) solo se enlazan, aunque el archivo viva en dipromedic.com:
+su reutilización no está cubierta por el aviso de Dipromedic.
 Ningún nombre de archivo se toma como validación: nunca se produce `ficha_tecnica` ni `certificado`.
 """
 import hashlib
@@ -20,9 +21,12 @@ from sqlalchemy.orm import Session
 from app.core.errors import AppError
 from app.models import Document, Product
 from app.services import audit, uploads
+from app.services.storage import get_storage
 
 OWN_HOSTS = {"dipromedic.com", "www.dipromedic.com", "traufix.com", "www.traufix.com"}
-MAX_FETCH_BYTES = 90 * 1024 * 1024
+# Tope por archivo, tanto para copias locales como para descargas. Los PDFs propios más grandes se crean como
+# documento de enlace (sin archivo) y se cuentan en `skipped_large`.
+CATALOG_DOC_MAX_BYTES = 25 * 1024 * 1024
 FETCH_TIMEOUT = 60.0
 MAX_REDIRECTS = 3
 USER_AGENT = "LicitDemo/1.0 (+contacto Atlas Technologies)"
@@ -39,16 +43,21 @@ class FetchError(Exception):
 
 
 def _require_own_https(url: str) -> None:
-    parts = urlparse(url)
-    if parts.scheme != "https" or (parts.hostname or "").lower() not in OWN_HOSTS \
-            or parts.username or parts.password or parts.port not in (None, 443):
+    try:
+        parts = urlparse(url)
+        host, port = (parts.hostname or "").lower(), parts.port       # `.port` lanza ValueError con «:abc» o «:99999»
+    except ValueError:
+        raise FetchError("dominio_no_permitido") from None
+    if parts.scheme != "https" or host not in OWN_HOSTS or parts.username or parts.password \
+            or port not in (None, 443):
         raise FetchError("dominio_no_permitido")
 
 
-def _download(url: str, *, max_bytes: int = MAX_FETCH_BYTES, timeout: float = FETCH_TIMEOUT,
+def _download(url: str, *, max_bytes: int | None = None, timeout: float = FETCH_TIMEOUT,
               transport: httpx.BaseTransport | None = None) -> bytes:
     """GET de un PDF en un host propio (solo https; las redirecciones también deben quedar en hosts propios).
     TODO(integración): usar netguard.safe_get (frente C4) en lugar de esta validación mínima."""
+    limit = CATALOG_DOC_MAX_BYTES if max_bytes is None else max_bytes
     current = url
     try:
         with httpx.Client(transport=transport, follow_redirects=False, headers={"User-Agent": USER_AGENT},
@@ -57,21 +66,24 @@ def _download(url: str, *, max_bytes: int = MAX_FETCH_BYTES, timeout: float = FE
                 _require_own_https(current)
                 with client.stream("GET", current) as response:
                     if response.is_redirect:
-                        current = urljoin(current, response.headers.get("location", ""))
+                        try:
+                            current = urljoin(current, response.headers.get("location", ""))
+                        except ValueError:
+                            raise FetchError("dominio_no_permitido") from None
                         continue
                     if response.status_code != 200:
                         raise FetchError(f"http_{response.status_code}")
                     declared = response.headers.get("content-length")
-                    if declared and declared.isdigit() and int(declared) > max_bytes:
+                    if declared and declared.isdigit() and int(declared) > limit:
                         raise FetchError("archivo_demasiado_grande")
                     chunks, size = [], 0
                     for chunk in response.iter_bytes():
                         size += len(chunk)
-                        if size > max_bytes:
+                        if size > limit:
                             raise FetchError("archivo_demasiado_grande")
                         chunks.append(chunk)
                     return b"".join(chunks)
-    except httpx.HTTPError:
+    except (httpx.HTTPError, httpx.InvalidURL):
         raise FetchError("descarga_fallida") from None
     raise FetchError("demasiadas_redirecciones")
 
@@ -80,6 +92,19 @@ def _download(url: str, *, max_bytes: int = MAX_FETCH_BYTES, timeout: float = FE
 
 def _plain(text: str | None) -> str:
     return "".join(c for c in unicodedata.normalize("NFKD", text or "") if not unicodedata.combining(c)).lower().strip()
+
+
+def _short_title(title: str, limit: int = 200) -> str:
+    """Los catálogos compartidos traen el título de cada ficha pegado con «; » (más de 600 caracteres), y
+    `documents.title` es VARCHAR(500). Se deja el primero y se cuenta el resto."""
+    if len(title) <= limit:
+        return title
+    first, *rest = title.split("; ")
+    suffix = f" y {len(rest)} más" if rest else ""
+    room = limit - len(suffix)
+    if len(first) > room:
+        first = first[:room - 1].rstrip() + "…"
+    return first + suffix
 
 
 def doc_type_from_label(label: str | None) -> str:
@@ -102,6 +127,7 @@ class Entry:
     third_party: bool
     local_path: str | None = None
     http_status: int | None = None
+    size_bytes: int | None = None
     product_refs: list[str] = field(default_factory=list)
 
 
@@ -142,10 +168,10 @@ def build_inventory(catalog: dict) -> list[Entry]:
         doc_type = doc_type_from_label(label) if label else doc_type_from_label(pdf.get("title"))
         name = unquote(PurePosixPath(parts.path).name)
         entries.append(Entry(
-            url=url, title=pdf.get("title") or (f"{label} · {name}" if label else name),
+            url=url, title=_short_title(pdf.get("title") or (f"{label} · {name}" if label else name)),
             doc_type=doc_type,
             third_party=parts.scheme != "https" or (parts.hostname or "").lower() not in OWN_HOSTS or third_line,
-            local_path=pdf.get("local_path"), http_status=pdf.get("http_status"),
+            local_path=pdf.get("local_path"), http_status=pdf.get("http_status"), size_bytes=pdf.get("size_bytes"),
             product_refs=list(dict.fromkeys(ref["products"])) if ref else [],
         ))
     return entries
@@ -166,23 +192,63 @@ def _code(url: str) -> str:
     return "CAT-" + hashlib.sha1(url.encode()).hexdigest()[:10].upper()
 
 
+class _TooLarge(Exception):
+    """El archivo propio supera `CATALOG_DOC_MAX_BYTES`: se enlaza en vez de guardarse."""
+
+
+class _NoSource(Exception):
+    """No hay copia local ni se pidió descargar."""
+
+
+def _read_own_pdf(entry: Entry, local_root: Path | None, fetch: bool, state: dict) -> bytes:
+    """Bytes de un PDF propio, de la copia local o de una descarga. Lanza `_TooLarge`, `_NoSource` o `FetchError`."""
+    local = _local_file(local_root, entry)
+    if local is not None:
+        if local.stat().st_size > CATALOG_DOC_MAX_BYTES:
+            raise _TooLarge
+        return local.read_bytes()
+    if entry.size_bytes is not None and entry.size_bytes > CATALOG_DOC_MAX_BYTES:
+        raise _TooLarge                       # el propio catálogo dice cuánto pesa: ni siquiera se descarga
+    if not fetch:
+        raise _NoSource
+    if state["fetched"]:
+        time.sleep(1.0)                       # cortesía con el sitio: una descarga a la vez, con pausa
+    state["fetched"] = True
+    try:
+        return _download(entry.url, max_bytes=CATALOG_DOC_MAX_BYTES)
+    except FetchError as err:
+        if err.reason == "archivo_demasiado_grande":
+            raise _TooLarge from None
+        raise
+
+
 def ingest_catalog_documents(db: Session, org_id: str, local_root: Path | None, fetch: bool,
                              catalog: dict | None = None) -> dict:
     """Crea los `Document` REAL del catálogo. Idempotente por `external_url`. Hace commit por documento.
 
     - Hosts y marcas propios: el PDF se lee de `local_root` (carpeta espejo de `docs/research/dipromedic/pdfs`)
-      o, con `fetch=True`, se descarga (máx. 90 MB, 60 s). Se guarda con SHA-256 como versión 1.
+      o, con `fetch=True`, se descarga (máx. 25 MB, 60 s). Se guarda con SHA-256 como versión 1. Si pesa más de
+      25 MB se crea como documento de enlace (sin archivo, `third_party=False`) y se cuenta en `skipped_large`.
     - Otras marcas o dominios: documento de tercero, solo con enlace y sin archivo.
     - Se vincula al `Product` por `external_ref` cuando la ficha lo referencia una sola; un PDF compartido por
       varias fichas (un catálogo) queda sin producto. Si el producto no está importado, el documento se crea sin
       vínculo y se reporta `producto_no_importado`; la siguiente corrida completa el vínculo.
+    - Si un documento propio ya existe pero su objeto desapareció del almacenamiento (disco efímero), se vuelve a
+      subir desde la misma fuente siempre que el contenido sea idéntico (mismo SHA-256); si cambió, se reporta
+      `hash_distinto` y no se sobrescribe.
 
-    Devuelve `{uploaded, linked_external, skipped, relinked, errors: [{url, reason}]}`."""
+    Devuelve `{uploaded, linked_external, skipped, skipped_large, relinked, repaired, errors: [{url, reason}],
+    large_files: [{url, reason: "archivo_grande", size_bytes}]}`."""
     entries = build_inventory(catalog if catalog is not None else load_catalog())
     products = {ref: pid for pid, ref in db.execute(select(Product.id, Product.external_ref).where(
         Product.organization_id == org_id, Product.external_ref.is_not(None)))}
-    result = {"uploaded": 0, "linked_external": 0, "skipped": 0, "relinked": 0, "errors": []}
-    fetched_any = False
+    result: dict = {"uploaded": 0, "linked_external": 0, "skipped": 0, "skipped_large": 0, "relinked": 0,
+                    "repaired": 0, "errors": [], "large_files": []}
+    state = {"fetched": False}
+    storage = get_storage()
+
+    def error(entry: Entry, reason: str) -> None:
+        result["errors"].append({"url": entry.url, "reason": reason})
 
     for entry in entries:
         product_id, missing_product = None, False
@@ -200,40 +266,41 @@ def ingest_catalog_documents(db: Session, org_id: str, local_root: Path | None, 
                              before={"product_id": None}, after={"product_id": product_id})
                 db.commit()
                 result["relinked"] += 1
-            result["skipped"] += 1
             if missing_product:
-                result["errors"].append({"url": entry.url, "reason": "producto_no_importado"})
+                error(entry, "producto_no_importado")
+            version = existing.versions[-1] if existing.versions else None
+            if not existing.third_party and version is not None and version.storage_key \
+                    and not storage.exists(version.storage_key):
+                _repair(db, entry, existing, version, local_root, fetch, state, storage, result)
+            else:
+                result["skipped"] += 1
             continue
 
         data = None
+        too_large = False
         if not entry.third_party:
             if entry.http_status not in (None, 200):
-                result["errors"].append({"url": entry.url, "reason": f"enlace_roto_http_{entry.http_status}"})
+                error(entry, f"enlace_roto_http_{entry.http_status}")
                 continue
-            local = _local_file(local_root, entry)
-            if local is not None:
-                data = local.read_bytes()
-            elif fetch:
-                if fetched_any:
-                    time.sleep(1.0)               # cortesía con el sitio: una descarga a la vez, con pausa
-                fetched_any = True
-                try:
-                    data = _download(entry.url)
-                except FetchError as err:
-                    result["errors"].append({"url": entry.url, "reason": err.reason})
-                    continue
-            else:
-                result["skipped"] += 1            # sin copia local y sin --fetch
-                continue
-            filename = unquote(PurePosixPath(urlparse(entry.url).path).name)
             try:
-                content_type, _ = uploads.validate_upload(data, filename, MAX_FETCH_BYTES)
-                if content_type != uploads.PDF:
-                    raise AppError(422, "unsupported_file", "No es un PDF")
-            except AppError as err:
-                reason = "archivo_demasiado_grande" if err.status == 413 else "archivo_no_valido"
-                result["errors"].append({"url": entry.url, "reason": reason})
+                data = _read_own_pdf(entry, local_root, fetch, state)
+            except _TooLarge:
+                too_large = True
+            except _NoSource:
+                result["skipped"] += 1        # sin copia local y sin --fetch
                 continue
+            except FetchError as err:
+                error(entry, err.reason)
+                continue
+            if data is not None:
+                filename = unquote(PurePosixPath(urlparse(entry.url).path).name)
+                try:
+                    content_type, _ = uploads.validate_upload(data, filename, CATALOG_DOC_MAX_BYTES)
+                    if content_type != uploads.PDF:
+                        raise AppError(422, "unsupported_file", "No es un PDF")
+                except AppError as err:
+                    error(entry, "archivo_demasiado_grande" if err.status == 413 else "archivo_no_valido")
+                    continue
 
         host = (urlparse(entry.url).hostname or "").removeprefix("www.")
         doc = uploads.create_document(
@@ -242,11 +309,38 @@ def ingest_catalog_documents(db: Session, org_id: str, local_root: Path | None, 
             external_url=entry.url, issuer_declared=f"Sitio público {host}" if host else None)
         if data is not None:
             uploads.store_version(db, None, doc, data, unquote(PurePosixPath(urlparse(entry.url).path).name),
-                                  "Descargado del sitio público de Dipromedic/Traufix.", max_bytes=MAX_FETCH_BYTES)
+                                  "Descargado del sitio público de Dipromedic/Traufix.",
+                                  max_bytes=CATALOG_DOC_MAX_BYTES)
             result["uploaded"] += 1
+        elif too_large:
+            result["skipped_large"] += 1
+            result["large_files"].append({"url": entry.url, "reason": "archivo_grande", "size_bytes": entry.size_bytes})
         else:
             result["linked_external"] += 1
         db.commit()
         if missing_product:
-            result["errors"].append({"url": entry.url, "reason": "producto_no_importado"})
+            error(entry, "producto_no_importado")
     return result
+
+
+def _repair(db: Session, entry: Entry, doc: Document, version, local_root: Path | None, fetch: bool, state: dict,
+            storage, result: dict) -> None:
+    """Repone el objeto perdido de un documento propio si la fuente da exactamente el mismo contenido."""
+    try:
+        data = _read_own_pdf(entry, local_root, fetch, state)
+    except (_TooLarge, _NoSource):
+        result["errors"].append({"url": entry.url, "reason": "archivo_perdido"})
+        return
+    except FetchError as err:
+        result["errors"].append({"url": entry.url, "reason": err.reason})
+        return
+    if hashlib.sha256(data).hexdigest() != version.sha256:
+        # El origen cambió: sobrescribir invalidaría las citas por hash y página. Lo decide una persona.
+        result["errors"].append({"url": entry.url, "reason": "hash_distinto"})
+        return
+    storage.put(version.storage_key, data, version.content_type or uploads.PDF)
+    audit.record(db, organization_id=doc.organization_id, actor_id=None, action="document.file_repaired",
+                 resource_type="document", resource_id=doc.id,
+                 after={"version": version.version, "sha256": version.sha256})
+    db.commit()
+    result["repaired"] += 1

@@ -59,7 +59,7 @@ export default function DocumentDetail() {
           </span>
         }
         actions={
-          canUpload && !(d.third_party && d.versions.length === 0) && (
+          canUpload && !d.third_party && (
             <button type="button" className="btn-primary" onClick={() => setUploadOpen(true)}>
               <FileUp aria-hidden="true" className="h-4 w-4" />
               Subir versión nueva

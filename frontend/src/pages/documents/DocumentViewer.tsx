@@ -95,7 +95,9 @@ export default function DocumentViewer({ documentId, version, page = 1, document
   if (loaded.error && !provided) return <ErrorPanel error={loaded.error} onRetry={loaded.reload} />
   if (!doc) return <LoadingBlock label="Cargando documento…" />
 
-  const externalUrl = (fileError && externalUrlOf(fileError)) || (doc.third_party && !row?.has_file ? doc.external_url : null)
+  // Sin ningún archivo almacenado y con URL de origen: se consulta allá (tercero, o PDF propio demasiado grande).
+  const linkOnly = Boolean(doc.external_url) && !doc.versions.some((v) => v.has_file)
+  const externalUrl = (fileError && externalUrlOf(fileError)) || (linkOnly ? doc.external_url : null)
   const contentType = row?.content_type ?? ''
   const isPdf = contentType === 'application/pdf'
   const isImage = contentType.startsWith('image/')
@@ -174,11 +176,25 @@ export default function DocumentViewer({ documentId, version, page = 1, document
         <div className="px-4 py-8">
           <div className="mx-auto max-w-xl rounded-lg border border-slate-300 bg-slate-50 p-5 text-center">
             <Link2 aria-hidden="true" className="mx-auto h-7 w-7 text-slate-500" />
-            <h3 className="mt-2 text-base font-semibold text-slate-900">Documento de tercero · enlace externo</h3>
-            <p className="mt-1 text-sm text-slate-600">
-              Este archivo pertenece a otra marca o fabricante y no se guarda en la plataforma. Su reutilización no está
-              cubierta por el aviso de Dipromedic, por eso solo se enlaza a su origen ({host(externalUrl)}).
-            </p>
+            {doc.third_party ? (
+              <>
+                <h3 className="mt-2 text-base font-semibold text-slate-900">Documento de tercero · enlace externo</h3>
+                <p className="mt-1 text-sm text-slate-600">
+                  Este archivo pertenece a otra marca o fabricante y no se guarda en la plataforma. Su reutilización no
+                  está cubierta por el aviso de Dipromedic, por eso solo se enlaza a su origen ({host(externalUrl)}).
+                </p>
+              </>
+            ) : (
+              <>
+                <h3 className="mt-2 text-base font-semibold text-slate-900">
+                  Archivo grande · se consulta en el sitio de origen
+                </h3>
+                <p className="mt-1 text-sm text-slate-600">
+                  Este documento es de Dipromedic o Traufix, pero pesa demasiado para guardarlo en la plataforma. Ábrelo en
+                  su sitio de origen ({host(externalUrl)}).
+                </p>
+              </>
+            )}
             <a href={externalUrl} target="_blank" rel="noopener noreferrer" className="btn-primary mt-4">
               <ExternalLink aria-hidden="true" className="h-4 w-4" />
               Abrir en {host(externalUrl)}
@@ -260,8 +276,12 @@ export default function DocumentViewer({ documentId, version, page = 1, document
 
       {doc.external_url && !doc.third_party && doc.data_kind === 'REAL' && (
         <footer className="border-t border-slate-200 px-4 py-2 text-xs text-slate-600">
-          {consultedOn(row) && <CatalogCredit checkedOn={consultedOn(row)!} />}
-          {' · '}
+          {consultedOn(row) && (
+            <>
+              <CatalogCredit checkedOn={consultedOn(row)!} />
+              {' · '}
+            </>
+          )}
           <a href={doc.external_url} target="_blank" rel="noopener noreferrer" className="link">
             Ver en {host(doc.external_url)}
           </a>

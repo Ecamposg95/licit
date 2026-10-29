@@ -96,6 +96,8 @@ export default function DocumentList({ docs }: { docs: DocumentRow[] }) {
                     </span>
                   ) : d.third_party ? (
                     <span className="muted">Solo enlace</span>
+                  ) : d.external_url ? (
+                    <span className="muted">Archivo grande · en el sitio de origen</span>
                   ) : (
                     <span className="muted">{latest?.note ?? 'Sin archivo cargado'}</span>
                   )}

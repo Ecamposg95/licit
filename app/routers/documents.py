@@ -135,6 +135,11 @@ def create_document(file: UploadFile = File(...), title: str = Form(...), scope:
 def upload_version(document_id: str, file: UploadFile = File(...), note: str | None = Form(None),
                    db: Session = Depends(get_db), user: User = Depends(require_permission(Perm.DOCUMENT_UPLOAD))):
     doc = get_owned(db, Document, document_id, user, "Documento")
+    if doc.third_party:
+        # Un documento de tercero solo se enlaza: no se guarda una copia aunque alguien la tenga.
+        raise AppError(409, "external_document",
+                       "Es un documento de tercero: solo se enlaza, no se guardan archivos en esta plataforma.",
+                       {"external_url": doc.external_url})
     data = _read_upload(file)
     version = uploads.store_version(db, user, doc, data, file.filename or "", note)
     db.commit()
@@ -162,9 +167,10 @@ def download_version(document_id: str, version: int, db: Session = Depends(get_d
     doc = get_owned(db, Document, document_id, user, "Documento")
     row = next((v for v in doc.versions if v.version == version), None)
     if row is None or not row.storage_key:
-        if doc.third_party and doc.external_url:
+        if doc.external_url and not any(v.storage_key for v in doc.versions):
+            # De tercero, o propio pero demasiado grande para guardarlo: se consulta en su sitio de origen.
             raise AppError(409, "external_document",
-                           "Es un documento de tercero: solo se enlaza, no se almacena en esta plataforma.",
+                           "Este documento no se almacena en la plataforma: se consulta en su sitio de origen.",
                            {"external_url": doc.external_url})
         if row is None:
             raise AppError(404, "not_found", "Versión no encontrada")

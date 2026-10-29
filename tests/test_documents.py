@@ -650,6 +650,12 @@ def test_download_guard_allows_only_own_https_hosts():
             return httpx.Response(302, headers={"location": "http://traufix.com/ok.pdf"})
         if path == "/loop.pdf":
             return httpx.Response(302, headers={"location": f"https://{host}/loop.pdf"})
+        if path == "/to-badport.pdf":
+            return httpx.Response(302, headers={"location": "https://traufix.com:abc/ok.pdf"})
+        if path == "/to-hugeport.pdf":
+            return httpx.Response(302, headers={"location": "https://traufix.com:99999/ok.pdf"})
+        if path == "/to-brokenhost.pdf":
+            return httpx.Response(302, headers={"location": "https://[::1/ok.pdf"})
         if path == "/big.pdf":
             return httpx.Response(200, content=b"%PDF-" + b"0" * 2048)
         return httpx.Response(404)
@@ -663,11 +669,24 @@ def test_download_guard_allows_only_own_https_hosts():
                         ("https://traufix.com.evil.example/ok.pdf", "dominio_no_permitido"),
                         ("https://traufix.com/to-evil.pdf", "dominio_no_permitido"),
                         ("https://traufix.com/to-http.pdf", "dominio_no_permitido"),
+                        ("https://traufix.com:abc/ok.pdf", "dominio_no_permitido"),
+                        ("https://traufix.com:99999/ok.pdf", "dominio_no_permitido"),
+                        ("https://[::1/ok.pdf", "dominio_no_permitido"),
                         ("https://traufix.com/loop.pdf", "demasiadas_redirecciones"),
                         ("https://traufix.com/missing.pdf", "http_404")]:
         with pytest.raises(cd.FetchError) as err:
             get(url)
         assert err.value.reason == reason, url
+    # Un Location hostil (puerto no numérico o fuera de rango, host que urlparse rechaza) nunca escapa como ValueError:
+    # httpx ya lo rechaza al construir la redirección (descarga_fallida) o lo detiene la validación propia.
+    for path in ("to-badport.pdf", "to-hugeport.pdf", "to-brokenhost.pdf"):
+        with pytest.raises(cd.FetchError) as err:
+            get(f"https://traufix.com/{path}")
+        assert err.value.reason in {"dominio_no_permitido", "descarga_fallida"}, path
+    for url in ("https://traufix.com:abc/x.pdf", "https://traufix.com:99999/x.pdf", "https://[::1/x.pdf"):
+        with pytest.raises(cd.FetchError) as err:
+            cd._require_own_https(url)
+        assert err.value.reason == "dominio_no_permitido", url
     with pytest.raises(cd.FetchError) as err:
         get("https://traufix.com/big.pdf", max_bytes=1024)
     assert err.value.reason == "archivo_demasiado_grande"
@@ -692,3 +711,200 @@ def test_real_catalog_fixture_classification():
         result = cd.ingest_catalog_documents(db, org_id(), None, fetch=False)
         assert result["linked_external"] == 27 and result["uploaded"] == 0
         assert len(db.scalars(select(Document).where(Document.third_party.is_(True))).all()) == 27
+        # Los PDFs propios de más de 25 MB se crean como enlace (sin archivo) y no son de tercero.
+        large = [i for i in own if (i.size_bytes or 0) > cd.CATALOG_DOC_MAX_BYTES]
+        assert large and result["skipped_large"] == len(large)
+        assert all(i.url in {e["url"] for e in result["large_files"]} for i in large)
+        link_only = db.scalars(select(Document).where(Document.external_url.in_([i.url for i in large]))).unique().all()
+        assert len(link_only) == len(large) and all(not d.third_party and not d.versions for d in link_only)
+
+
+# ── Ronda de correcciones 1 ──────────────────────────────────────────────────
+
+import time  # noqa: E402
+import struct  # noqa: E402
+
+from app.services import uploads  # noqa: E402
+
+
+# I1 · pdf_page_count acotado ante PDFs hostiles
+
+def test_pdf_page_count_is_bounded_on_hostile_input():
+    hostile = b"%PDF-1.4\n" + b"/Type/Pages " * 175_000                 # ~2 MB, 175k coincidencias
+    assert len(hostile) > 2_000_000
+    started = time.perf_counter()
+    assert uploads.pdf_page_count(hostile) is None                      # no se puede determinar: nunca se adivina
+    assert time.perf_counter() - started < 1.0
+    # También sin ningún "obj"/"endobj" cerca y con un diccionario enorme sin cerrar.
+    started = time.perf_counter()
+    assert uploads.pdf_page_count(b"%PDF-1.4\n1 0 obj\n<< /Type /Pages " + b"x" * 3_000_000) is None
+    assert time.perf_counter() - started < 1.0
+    # Un PDF normal sigue contándose.
+    assert uploads.pdf_page_count(demo_documents.render_demo_pdf("Dos páginas", ["a", demo_documents.PAGE_BREAK, "b"])) == 2
+
+
+# I2 · DOCX mal formados responden 422, no 500
+
+def patch_zip_method(data: bytes, name: str, method: int) -> bytes:
+    """Cambia el método de compresión declarado de una entrada (en la cabecera local y en el directorio central)."""
+    out = bytearray(data)
+    encoded = name.encode()
+    for signature, offset in ((b"PK\x03\x04", 8), (b"PK\x01\x02", 10)):
+        start = 0
+        while (start := out.find(signature, start)) != -1:
+            name_len_at = start + (26 if signature == b"PK\x03\x04" else 28)
+            name_len = struct.unpack_from("<H", out, name_len_at)[0]
+            name_at = start + (30 if signature == b"PK\x03\x04" else 46)
+            if bytes(out[name_at:name_at + name_len]) == encoded:
+                struct.pack_into("<H", out, start + offset, method)
+            start += 4
+    return bytes(out)
+
+
+def stored_docx() -> bytes:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED) as zf:
+        zf.writestr("[Content_Types].xml", b"<Types>0123456789</Types>")
+        zf.writestr("word/document.xml", b"<w:document/>")
+    return buf.getvalue()
+
+
+def test_malformed_docx_is_422_not_500(client, analista):
+    good = stored_docx()
+    # CRC incorrecto en [Content_Types].xml (se altera un byte del contenido sin actualizar el CRC).
+    bad_crc = good.replace(b"0123456789", b"0123456780", 1)
+    assert bad_crc != good
+    # Método de compresión no soportado (99 = AES) en [Content_Types].xml.
+    unsupported = patch_zip_method(good, "[Content_Types].xml", 99)
+    # Deflate corrupto.
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("[Content_Types].xml", b"<Types>" + b"abcdefghij" * 400 + b"</Types>")
+        zf.writestr("word/document.xml", b"<w:document/>")
+    raw = bytearray(buf.getvalue())
+    start = raw.find(b"PK\x03\x04") + 30 + len(b"[Content_Types].xml")
+    for i in range(start + 4, start + 14):
+        raw[i] ^= 0xFF
+    for label, blob in (("crc", bad_crc), ("compresion", unsupported), ("deflate", bytes(raw))):
+        r = upload(client, analista, blob, filename="roto.docx", content_type=DOCX_CT)
+        assert r.status_code == 422, (label, r.status_code, r.text)
+        assert r.json()["code"] == "unsupported_file", label
+    # Un DOCX sin macros, sin comprimir, sí pasa.
+    assert upload(client, analista, good, filename="bueno.docx", content_type=DOCX_CT).status_code == 201
+
+
+def test_malformed_docx_in_ingest_does_not_abort(tmp_path):
+    # Un archivo de catálogo que no es PDF (ni DOCX válido) se reporta y la ingesta sigue con los demás.
+    write_local(tmp_path, "traufix.com/TITAN-Humero-Proximal-TQ-048.pdf", patch_zip_method(stored_docx(), "[Content_Types].xml", 99))
+    write_local(tmp_path, "dipromedic/catalogos/traufix/Catalogo-Traufix-ES.pdf", pdf_bytes("bueno"))
+    with SessionLocal() as db:
+        result = cd.ingest_catalog_documents(db, org_id(), tmp_path, fetch=False, catalog=mini_catalog())
+        assert {"url": TQ_URL, "reason": "archivo_no_valido"} in result["errors"]
+        assert result["uploaded"] == 1
+
+
+# M4 · un documento de tercero solo se enlaza
+
+def test_cannot_upload_version_to_third_party_document(client, analista):
+    url = "https://www.fabricante-externo.example/ficha.pdf"
+    with SessionLocal() as db:
+        doc = Document(organization_id=org_id(), code="EXT-2", title="Ficha del fabricante (tercero)", scope="producto",
+                       data_kind="REAL", current_version=0, third_party=True, external_url=url)
+        db.add(doc)
+        db.commit()
+        doc_id = doc.id
+    r = upload_version(client, analista, doc_id, pdf_bytes("copia"))
+    assert r.status_code == 409
+    assert r.json()["code"] == "external_document"
+    assert r.json()["details"] == {"external_url": url}
+    with SessionLocal() as db:
+        assert not db.scalars(select(DocumentVersion).where(DocumentVersion.document_id == doc_id)).all()
+        assert not [e for e in db.scalars(select(AuditEvent).where(AuditEvent.resource_id == doc_id))
+                    if e.action == "document.version_upload"]
+    assert get_storage().exists(f"org/{org_id()}/documents/{doc_id}/v1/ficha_v2.pdf") is False
+
+
+# M1 · tope de ingesta: los PDFs propios grandes solo se enlazan
+
+def test_large_own_pdf_is_link_only_not_third_party(client, analista, tmp_path, monkeypatch):
+    monkeypatch.setattr(cd, "CATALOG_DOC_MAX_BYTES", 1000)
+    monkeypatch.setattr(cd.time, "sleep", lambda s: None)
+    big_local = pdf_bytes("grande") + b"0" * 2000
+    write_local(tmp_path, "traufix.com/TITAN-Humero-Proximal-TQ-048.pdf", big_local)              # local: 2 KB > tope
+    catalog = mini_catalog()
+    for pdf in catalog["pdfs"]:
+        if pdf["url"] == CATALOG_URL:
+            pdf["size_bytes"] = 5000                                                                # el fixture ya dice que pesa
+    downloads = []
+    with SessionLocal() as db:
+        add_product(db, "traufix_extremidad-superior_titan")
+
+    def fake_download(url, **kwargs):
+        downloads.append((url, kwargs.get("max_bytes")))
+        raise cd.FetchError("archivo_demasiado_grande")                                            # tamaño desconocido, excede al bajar
+
+    monkeypatch.setattr(cd, "_download", fake_download)
+    with SessionLocal() as db:
+        result = cd.ingest_catalog_documents(db, org_id(), tmp_path, fetch=True, catalog=catalog)
+        assert result["skipped_large"] == 3 and result["uploaded"] == 0
+        assert {e["reason"] for e in result["large_files"]} == {"archivo_grande"}
+        assert {e["url"] for e in result["large_files"]} == {TQ_URL, CATALOG_URL, BROCHURE_URL}
+        assert not [e for e in result["errors"] if e["url"] in {TQ_URL, CATALOG_URL, BROCHURE_URL}]
+        assert downloads == [(BROCHURE_URL, 1000)]                    # solo el de tamaño desconocido llegó a descargarse
+        doc = db.scalars(select(Document).where(Document.external_url == TQ_URL)).one()
+        assert doc.third_party is False and doc.versions == [] and doc.data_kind == "REAL" and doc.doc_type == "tecnica_quirurgica"
+        doc_id = doc.id
+        again = cd.ingest_catalog_documents(db, org_id(), tmp_path, fetch=True, catalog=catalog)
+        assert again["skipped_large"] == 0 and len(db.scalars(select(Document).where(Document.external_url == TQ_URL)).all()) == 1
+    # La descarga de un documento propio sin archivo responde 409 con su URL de origen.
+    r = download(client, analista, doc_id)
+    assert r.status_code == 409 and r.json()["code"] == "external_document"
+    assert r.json()["details"] == {"external_url": TQ_URL}
+
+
+def test_ingest_cap_default_is_25_mb():
+    assert cd.CATALOG_DOC_MAX_BYTES == 25 * 1024 * 1024
+
+
+# M7 · reparación de objetos perdidos del almacenamiento
+
+def test_ingest_repairs_lost_object(tmp_path):
+    data = pdf_bytes("reparar") + b"0" * 300
+    local = write_local(tmp_path, "traufix.com/TITAN-Humero-Proximal-TQ-048.pdf", data)
+    storage = get_storage()
+    with SessionLocal() as db:
+        cd.ingest_catalog_documents(db, org_id(), tmp_path, fetch=False, catalog=mini_catalog())
+        doc = db.scalars(select(Document).where(Document.external_url == TQ_URL)).one()
+        key = doc.versions[0].storage_key
+        assert storage.exists(key)
+        # Sin pérdida, la segunda corrida no sube nada ni repara nada.
+        again = cd.ingest_catalog_documents(db, org_id(), tmp_path, fetch=False, catalog=mini_catalog())
+        assert again["repaired"] == 0 and again["uploaded"] == 0
+        # El objeto se pierde (disco efímero) y la siguiente corrida lo repone con el mismo contenido.
+        storage.delete(key)
+        result = cd.ingest_catalog_documents(db, org_id(), tmp_path, fetch=False, catalog=mini_catalog())
+        assert result["repaired"] == 1 and result["uploaded"] == 0
+        assert storage.get(key) == data
+        assert len(db.scalars(select(DocumentVersion).where(DocumentVersion.document_id == doc.id)).all()) == 1
+        # Si el origen cambió (hash distinto), no se sobrescribe: se reporta.
+        storage.delete(key)
+        local.write_bytes(data + b"cambio")
+        result = cd.ingest_catalog_documents(db, org_id(), tmp_path, fetch=False, catalog=mini_catalog())
+        assert {"url": TQ_URL, "reason": "hash_distinto"} in result["errors"] and result["repaired"] == 0
+        assert not storage.exists(key)
+        # Sin origen disponible tampoco se puede reparar: se reporta.
+        result = cd.ingest_catalog_documents(db, org_id(), None, fetch=False, catalog=mini_catalog())
+        assert {"url": TQ_URL, "reason": "archivo_perdido"} in result["errors"]
+
+
+def test_inventory_titles_fit_the_title_column():
+    """Los catálogos compartidos traen el título de cada ficha pegado con «; » (hasta 600+ caracteres) y
+    `documents.title` es VARCHAR(500): en Postgres el INSERT fallaba (SQLite no lo hace cumplir)."""
+    inventory = cd.build_inventory(cd.load_catalog())
+    assert max(len(i.title) for i in inventory) <= 200
+    long_title = "; ".join(f"Ver catálogo de misceláneos – Pieza {n} " + "x" * 40 for n in range(15))
+    catalog = mini_catalog()
+    catalog["pdfs"][0]["title"] = long_title
+    short = cd.build_inventory(catalog)[0].title
+    assert len(short) <= 200 and short.startswith("Ver catálogo de misceláneos – Pieza 0") and short.endswith("y 14 más")
+    assert cd.build_inventory(mini_catalog())[0].title == "Técnica Quirúrgica – TITAN Húmero Proximal"

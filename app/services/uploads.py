@@ -9,6 +9,7 @@ import io
 import re
 import unicodedata
 import zipfile
+import zlib
 from datetime import date
 
 from sqlalchemy import func, select
@@ -37,12 +38,21 @@ def _unsupported(message: str) -> AppError:
     return AppError(422, "unsupported_file", message)
 
 
+# Todo lo que puede salir al leer un ZIP mal formado: CRC, método de compresión no soportado, deflate corrupto, etc.
+_ZIP_ERRORS = (zipfile.BadZipFile, NotImplementedError, zlib.error, OSError, ValueError, RuntimeError, EOFError,
+               OverflowError)
+
+
 def _sniff_docx(data: bytes) -> str:
     try:
-        archive = zipfile.ZipFile(io.BytesIO(data))
-    except zipfile.BadZipFile:
-        raise _unsupported("El archivo no es un documento válido (el ZIP está dañado).") from None
-    with archive:
+        return _inspect_docx(data)
+    except _ZIP_ERRORS:
+        raise _unsupported("El archivo no es un documento válido (el ZIP está dañado o usa un formato no admitido).") \
+            from None
+
+
+def _inspect_docx(data: bytes) -> str:
+    with zipfile.ZipFile(io.BytesIO(data)) as archive:
         infos = archive.infolist()
         if sum(i.file_size for i in infos) > MAX_UNCOMPRESSED_BYTES:
             raise AppError(422, "archive_too_large",
@@ -116,13 +126,22 @@ def validate_upload(data: bytes, filename: str, max_bytes: int | None = None) ->
     return content_type, safe
 
 
+_PAGES_MARK = re.compile(rb"/Type\s*/Pages\b")
+_MAX_PAGES_NODES = 100          # un PDF con más nodos /Pages que esto no se inspecciona: se devuelve None
+_WINDOW_BEFORE = 512            # cuánto se mira hacia atrás para encontrar «N G obj»
+_WINDOW_AFTER = 4096            # cuánto se mira hacia adelante para encontrar «endobj»
+
+
 def pdf_page_count(data: bytes) -> int | None:
     """Páginas leídas del `/Count` del nodo raíz de páginas. `None` si no se puede determinar con certeza
-    (por ejemplo, PDF con objetos comprimidos): es mejor no saberlo que inventarlo."""
+    (PDF con objetos comprimidos, nodos demasiado grandes o más de 100 nodos `/Pages`): es mejor no saberlo que
+    inventarlo. Las ventanas de búsqueda están acotadas, así que el costo es lineal incluso con PDFs hostiles."""
     count = None
-    for m in re.finditer(rb"/Type\s*/Pages\b", data):
-        start = data.rfind(b"obj", 0, m.start())
-        end = data.find(b"endobj", m.end())
+    for inspected, mark in enumerate(_PAGES_MARK.finditer(data)):
+        if inspected >= _MAX_PAGES_NODES:
+            return None
+        start = data.rfind(b"obj", max(0, mark.start() - _WINDOW_BEFORE), mark.start())
+        end = data.find(b"endobj", mark.end(), mark.end() + _WINDOW_AFTER)
         if start < 0 or end < 0:
             continue
         body = data[start:end]
