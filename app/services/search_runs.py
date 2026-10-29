@@ -21,12 +21,14 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.errors import AppError
-from app.models import DataKind, Job, Opportunity, OpportunityEvidence, SearchRun, SearchRunStatus, Source, User
-from app.models.base import utcnow
+from app.models import (
+    DataKind, Job, Opportunity, OpportunityEvidence, SearchRun, SearchRunStatus, Source, Task, User,
+)
+from app.models.base import new_id, utcnow
 from app.models.opportunity import SourceStatus
 from app.schemas.search import SearchCounts, SearchErrorOut, SearchQueryOut, SearchRunOut, SearchTermOut
 from app.schemas.v1 import UserRef
-from app.services import audit, jobs
+from app.services import audit, jobs, workspace
 from app.services.demo_seed import normalize_external_id
 from app.sources.base import NoteDetail, NoteHit, ProcedureParsed, SourceUnavailable
 from app.sources.dates_es import MX, normalize_text
@@ -316,6 +318,8 @@ def upsert_procedure(db: Session, org_id: str, proc: ProcedureParsed, note: Note
                       ).first()
     changed = last is None or last.sha256 != note.sha256
     _add_evidence(db, org_id, opp, source, note, proc, run)
+    if changed:
+        bases_changed(db, opp, note, last.sha256 if last else None, actor)
     if opp.data_kind != DataKind.REAL.value:
         db.flush()
         return "updated" if changed else "unchanged"
@@ -335,6 +339,41 @@ def upsert_procedure(db: Session, org_id: str, proc: ProcedureParsed, note: Note
                      after={**{f: after[f] for f in diff}, "evidence_sha256": note.sha256})
     db.flush()
     return "updated"
+
+
+BASES_CHANGED_TASK_TITLE = "Revisar cambio en bases (nota DOF actualizada)"
+BASES_CHANGED_CAUSE = "Cambio en las bases (nota DOF actualizada)"
+
+
+def bases_changed(db: Session, opp: Opportunity, note: NoteDetail, previous_sha256: str | None,
+                  actor_id: str | None) -> Task | None:
+    """La nota oficial de un procedimiento con expediente cambió (task pack §16 «cambio de bases», US07).
+
+    Las aprobaciones se anulan y quedan desactualizadas (misma invalidación que un cambio de requisito, de E), se abre
+    la actividad «Revisar cambio en bases» para el responsable de la oportunidad (sin asignar si no hay) y queda
+    `opportunity.bases_changed` en la bitácora. Las evidencias anteriores se conservan: la nota vieja sigue
+    consultable. Sin expediente no hay nada que invalidar y no se hace nada.
+    """
+    ws = workspace.find_workspace(db, opp.id)
+    if ws is None:
+        return None
+    change = workspace.invalidate_approvals(db, ws, actor_id, force_stale=True,
+                                            cause={"cause": BASES_CHANGED_CAUSE, "evidence_sha256": note.sha256})
+    task = db.scalars(select(Task).where(Task.opportunity_id == opp.id, Task.title == BASES_CHANGED_TASK_TITLE,
+                                         Task.status.in_(("pendiente", "en_progreso")))).first()
+    if task is None:                  # una sola actividad abierta aunque la nota cambie varias veces
+        tid = new_id()
+        task = Task(id=tid, organization_id=opp.organization_id, code=f"TASK-{tid[:8].upper()}",
+                    title=BASES_CHANGED_TASK_TITLE, status="pendiente", assignee_id=opp.owner_id,
+                    opportunity_id=opp.id, requirement_id=None, created_by_id=actor_id, data_kind=opp.data_kind,
+                    notes=f"Nota oficial actualizada: {note.url}")
+        db.add(task)
+        db.flush()
+    audit.record(db, organization_id=opp.organization_id, actor_id=actor_id, action="opportunity.bases_changed",
+                 resource_type="opportunity", resource_id=opp.id, before={"evidence_sha256": previous_sha256},
+                 after={"evidence_sha256": note.sha256, "url": note.url, "task_id": task.id,
+                        "assignee_id": task.assignee_id, "workspace": change})
+    return task
 
 
 # ── Trabajo ──────────────────────────────────────────────────────────────────

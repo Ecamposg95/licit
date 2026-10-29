@@ -74,22 +74,21 @@ def get_or_create_workspace(db: Session, opportunity: Opportunity, actor_id: str
     return ws
 
 
-def on_requirement_change(db: Session, requirement, actor_id: str | None) -> dict | None:
-    """Invalida las aprobaciones del expediente tras un cambio en uno de sus requisitos.
+def invalidate_approvals(db: Session, ws: BidWorkspace, actor_id: str | None, *, cause: dict,
+                         force_stale: bool = False) -> dict:
+    """Anula las aprobaciones del expediente tras un cambio en sus datos (requisito, evidencia o bases).
 
-    Devuelve lo que cambió en el expediente (para la bitácora del requisito) o `None` si no hay expediente. Si
-    había aprobaciones, su anulación queda además como evento propio (`workspace.approvals_invalidated`).
+    Borra ambas aprobaciones, regresa «listo para revisión final» a «preparación» y recalcula la afinidad guardada.
+    `approvals_stale` se marca si había aprobaciones o estaba listo; con `force_stale` (cambio de bases) siempre.
+    Si había algo que anular, deja `workspace.approvals_invalidated` con la causa. Devuelve lo que cambió.
     """
-    ws = find_workspace(db, requirement.opportunity_id)
-    if ws is None:
-        return None
     lock_workspace(db, ws)
     before = audit.snapshot(ws, [*_APPROVAL_FIELDS, "approvals_stale", "phase"])
     had_approvals = bool(ws.technical_approval_by_id or ws.commercial_approval_by_id)
     was_ready = ws.phase == PHASE_READY
     for f in _APPROVAL_FIELDS:
         setattr(ws, f, None)
-    if had_approvals or was_ready:
+    if had_approvals or was_ready or force_stale:
         ws.approvals_stale = True
     if was_ready:
         ws.phase = PHASE_PREPARATION
@@ -99,9 +98,22 @@ def on_requirement_change(db: Session, requirement, actor_id: str | None) -> dic
         audit.record(db, organization_id=ws.organization_id, actor_id=actor_id,
                      action="workspace.approvals_invalidated", resource_type="bid_workspace", resource_id=ws.id,
                      before=before, after={**audit.snapshot(ws, [*_APPROVAL_FIELDS, "approvals_stale", "phase"]),
-                                           "requirement_id": requirement.id, "requirement_code": requirement.code})
+                                           **cause})
     return {"workspace_id": ws.id, "approvals_cleared": had_approvals, "approvals_stale": ws.approvals_stale,
             "phase": ws.phase}
+
+
+def on_requirement_change(db: Session, requirement, actor_id: str | None) -> dict | None:
+    """Invalida las aprobaciones del expediente tras un cambio en uno de sus requisitos.
+
+    Devuelve lo que cambió en el expediente (para la bitácora del requisito) o `None` si no hay expediente. Si
+    había aprobaciones, su anulación queda además como evento propio (`workspace.approvals_invalidated`).
+    """
+    ws = find_workspace(db, requirement.opportunity_id)
+    if ws is None:
+        return None
+    return invalidate_approvals(db, ws, actor_id,
+                                cause={"requirement_id": requirement.id, "requirement_code": requirement.code})
 
 
 # ── Evaluación (motor determinista + afinidad) ───────────────────────────────

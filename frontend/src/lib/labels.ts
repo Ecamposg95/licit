@@ -157,6 +157,7 @@ const AUDIT_ACTION: Record<string, string> = {
   'artifact.generate': 'Borrador del expediente generado',
   'artifact.download': 'Borrador del expediente descargado',
   'audit.verify': 'Integridad de la bitácora verificada',
+  'opportunity.bases_changed': 'Cambio en las bases (nota oficial actualizada)',
 }
 export const auditActionLabel = (c: string) => AUDIT_ACTION[c] ?? c
 
@@ -265,6 +266,9 @@ const FIELD: Record<string, string> = {
   checked: 'Eventos verificados',
   first_broken_id: 'Primer evento alterado',
   last_hash: 'Último hash verificado',
+  // Cambio de bases (nota oficial actualizada)
+  cause: 'Causa',
+  task_id: 'Actividad creada',
 }
 export const fieldLabel = (c: string) => FIELD[c] ?? c
 
