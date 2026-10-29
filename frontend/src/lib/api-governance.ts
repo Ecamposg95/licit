@@ -23,6 +23,9 @@ export interface IntegrityResult {
   checked: number
   first_broken_id: string | null
   verified_at: IsoDateTime
+  /** Hash y hora del último evento verificado; null si la cadena está rota o no hay eventos. */
+  last_hash: string | null
+  last_event_at: IsoDateTime | null
 }
 
 export const verifyAuditChain = () => http.get<IntegrityResult>('/governance/audit/verify').then((r) => r.data)

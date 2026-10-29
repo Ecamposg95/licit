@@ -1,7 +1,7 @@
 """Frente G: gobierno corporativo (integridad, matriz de permisos, aprobaciones), cuentas demo,
 datos del panel de dirección y estado operativo."""
 import json
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import func, select, text
@@ -13,6 +13,10 @@ from app.models.base import utcnow
 from app.services import audit
 
 from tests.conftest import login
+
+
+def _utc(dt: datetime) -> datetime:
+    return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt.astimezone(timezone.utc)
 
 
 def _org_id(db) -> str:
@@ -41,6 +45,8 @@ def _count_events(db, action: str) -> int:
 def test_verify_ok(client, direccion):
     db = SessionLocal()
     before = db.scalar(select(func.count()).select_from(AuditEvent))
+    head = db.execute(select(AuditEvent.hash, AuditEvent.created_at).order_by(
+        AuditEvent.created_at.desc(), AuditEvent.id.desc()).limit(1)).one()
     db.close()
 
     r = client.get("/api/v1/governance/audit/verify", headers=direccion)
@@ -50,11 +56,15 @@ def test_verify_ok(client, direccion):
     assert body["ok"] is True and body["first_broken_id"] is None
     assert body["checked"] == before and body["checked"] > 0
     assert body["verified_at"]
+    # Se informa el último hash verificado (el del evento número `checked`) y la hora de ese evento,
+    # para que quien presenta pueda anotarlo y anclarlo fuera de la base de datos.
+    assert body["last_hash"] == head.hash and len(body["last_hash"]) == 64
+    assert _utc(datetime.fromisoformat(body["last_event_at"])) == _utc(head.created_at)
     # La verificación queda en la bitácora, con quien la pidió y su resultado.
     db = SessionLocal()
     event = db.scalars(select(AuditEvent).where(AuditEvent.action == "audit.verify")).one()
     assert event.actor_id == _user(db, "direccion@dipromedic.example").id
-    assert event.after["ok"] is True and event.after["checked"] == before
+    assert event.after["ok"] is True and event.after["checked"] == before and event.after["last_hash"] == head.hash
     # Y la cadena sigue íntegra después de registrar la verificación.
     assert audit.verify_chain(db, _org_id(db)) == (True, before + 1, None)
     db.close()
@@ -79,8 +89,33 @@ def test_verify_detects_tamper_sqlite(client, direccion):
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["ok"] is False
+    assert body["last_hash"] is None and body["last_event_at"] is None    # una cadena rota no tiene cabeza que anotar
     assert body["first_broken_id"] == target_id
     assert body["checked"] == order.index(target_id) + 1
+
+
+def test_verify_empty_log_has_no_hash(client):
+    from app.core.security import create_access_token, get_password_hash
+    from app.models import UserRole
+
+    db = SessionLocal()
+    org = Organization(name="Otra organización", demo_mode=True)
+    db.add(org)
+    db.flush()
+    user = User(organization_id=org.id, email="auditor@otra.example", full_name="Auditor",
+                hashed_password=get_password_hash("x"))
+    user.roles = [UserRole(role="direccion")]
+    db.add(user)
+    db.commit()
+    headers = {"Authorization": f"Bearer {create_access_token(user.id)}"}       # sin login: sin eventos
+    db.close()
+
+    body = client.get("/api/v1/governance/audit/verify", headers=headers).json()
+
+    assert body["checked"] == 0 and body["ok"] is True
+    assert body["last_hash"] is None and body["last_event_at"] is None           # nada que verificar, nada que anotar
+    again = client.get("/api/v1/governance/audit/verify", headers=headers).json()
+    assert again["checked"] == 1 and len(again["last_hash"]) == 64                # el evento audit.verify anterior
 
 
 def test_permissions_matrix_matches_code(client, direccion):
@@ -172,6 +207,21 @@ def test_approvals_resolve_target_and_reason(client, direccion):
     assert item["target"]["opportunity_external_id"] == "DEMO-LIC-001"
     assert item["target"]["data_kind"] == "SYNTHETIC"
     assert item["before"] == {"status": "en_revision"}
+
+
+def test_approvals_reason_comes_only_from_after(client, direccion):
+    db = SessionLocal()
+    req = db.scalars(select(Requirement).where(Requirement.code == "DEMO-REQ-005")).one()
+    _record(db, "requirement.review", resource_type="requirement", resource_id=req.id,
+            before={"status": "en_revision", "reason": "Motivo del estado anterior"},
+            after={"status": "incumple"})
+    db.close()
+
+    item = client.get("/api/v1/governance/approvals", headers=direccion).json()[0]
+
+    assert item["outcome"] == "incumple"
+    assert item["reason"] is None             # una decisión nunca muestra el motivo del estado previo
+    assert item["before"]["reason"] == "Motivo del estado anterior"
 
 
 def test_approvals_without_events_is_empty_list(client, direccion):

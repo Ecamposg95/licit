@@ -41,14 +41,29 @@ _ARTIFACT_TYPES = {"generated_artifact", "artifact"}
 
 @router.get("/governance/audit/verify", response_model=IntegrityResult)
 def verify_audit_chain(db: Session = Depends(get_db), user: User = Depends(require_permission(Perm.AUDIT_READ))):
-    """Recalcula la cadena SHA-256 de la bitácora de la organización y deja constancia de la verificación."""
-    ok, checked, first_broken_id = audit.verify_chain(db, user.organization_id)
+    """Recalcula la cadena SHA-256 de la bitácora de la organización y deja constancia de la verificación.
+
+    Detecta eventos modificados o borrados en medio de la cadena. No detecta que se hayan borrado los más
+    recientes ni que quien escribe en la base recalcule todos los hashes: por eso se devuelve el último hash
+    verificado, para anclarlo fuera de la base de datos.
+    """
+    org_id = user.organization_id
+    ok, checked, first_broken_id = audit.verify_chain(db, org_id)
     verified_at = datetime.now(timezone.utc)
-    audit.record(db, organization_id=user.organization_id, actor_id=user.id, action="audit.verify",
-                 resource_type="organization", resource_id=user.organization_id,
-                 after={"ok": ok, "checked": checked, "first_broken_id": first_broken_id})
+    last_hash = last_event_at = None
+    if ok and checked:
+        # El evento número `checked` en el mismo orden de la verificación: coincide con lo revisado aunque
+        # otro proceso agregue eventos mientras tanto.
+        head = db.execute(select(AuditEvent.hash, AuditEvent.created_at).where(AuditEvent.organization_id == org_id)
+                          .order_by(AuditEvent.created_at, AuditEvent.id).offset(checked - 1).limit(1)).first()
+        if head is not None:
+            last_hash, last_event_at = head.hash, head.created_at
+    audit.record(db, organization_id=org_id, actor_id=user.id, action="audit.verify",
+                 resource_type="organization", resource_id=org_id,
+                 after={"ok": ok, "checked": checked, "first_broken_id": first_broken_id, "last_hash": last_hash})
     db.commit()
-    return IntegrityResult(ok=ok, checked=checked, first_broken_id=first_broken_id, verified_at=verified_at)
+    return IntegrityResult(ok=ok, checked=checked, first_broken_id=first_broken_id, verified_at=verified_at,
+                           last_hash=last_hash, last_event_at=last_event_at)
 
 
 # ── Matriz de roles y permisos ───────────────────────────────────────────────
@@ -163,7 +178,8 @@ def approvals(demo_run_id: str | None = Query(None, description="Corrida demo; p
             id=e.id, action=e.action, created_at=e.created_at,
             actor=UserRef.model_validate(e.actor) if e.actor else None, roles=_roles(e.actor),
             resource_type=e.resource_type, resource_id=e.resource_id, target=targets.get(e.id),
-            reason=_first_text(e.after, e.before, keys=_REASON_KEYS),
+            # Solo `after`: la decisión muestra su propio motivo, nunca el del estado anterior.
+            reason=_first_text(e.after, keys=_REASON_KEYS),
             outcome=_first_text(e.after, keys=_OUTCOME_KEYS),
             before=e.before, after=e.after, demo_run_id=e.demo_run_id,
         )

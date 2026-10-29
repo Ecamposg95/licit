@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { CircleCheck, CircleX, ShieldCheck } from 'lucide-react'
+import { CircleCheck, CircleX, Copy, Inbox, ShieldCheck } from 'lucide-react'
 import PageHeader from '@/components/PageHeader'
 import Tooltip from '@/components/Tooltip'
 import { DataKindBadge, REQUIREMENT_STATUS } from '@/components/badges'
@@ -25,6 +25,42 @@ import { useCan } from '@/store/auth'
 
 // ── Integridad de la bitácora ────────────────────────────────────────────────
 
+const INTEGRITY_LIMIT =
+  'No detecta que se hayan borrado los eventos más recientes; para una garantía mayor, el último hash debe anclarse fuera de la base de datos. En producción (Postgres) un trigger impide modificar o borrar eventos.'
+
+/** Último hash verificado, en monospace y seleccionable de un clic, con botón para copiarlo. */
+function HeadHash({ hash, at }: { hash: string; at: string | null }) {
+  const [copied, setCopied] = useState(false)
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(hash)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 2000)
+    } catch {
+      // Sin permiso de portapapeles el hash sigue seleccionable con un clic.
+    }
+  }
+  return (
+    <div className="mt-3">
+      <p className="text-xs font-medium text-emerald-900">
+        Último hash verificado{at && <> (evento del <time dateTime={at}>{formatDateTime(at)}</time>)</>}
+      </p>
+      <div className="mt-1 flex flex-wrap items-center gap-2">
+        <code
+          data-testid="last-hash"
+          className="select-all break-all rounded border border-emerald-200 bg-white px-2 py-1 font-mono text-xs text-slate-900"
+        >
+          {hash}
+        </code>
+        <button type="button" className="btn-secondary py-1 text-xs" onClick={copy}>
+          <Copy aria-hidden="true" className="h-3.5 w-3.5" />
+          {copied ? 'Copiado' : 'Copiar'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function Integrity() {
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<IntegrityResult | null>(null)
@@ -43,6 +79,12 @@ function Integrity() {
     }
   }
 
+  const when = result && (
+    <>
+      Verificado el <time dateTime={result.verified_at}>{formatDateTime(result.verified_at)}</time> ({getDisplayTimeZone()}).
+    </>
+  )
+
   return (
     <section aria-labelledby="integridad" className="card">
       <div className="flex flex-wrap items-start justify-between gap-4 px-4 py-4">
@@ -51,9 +93,10 @@ function Integrity() {
             Integridad de la bitácora
           </h2>
           <p className="mt-1 text-sm text-slate-600">
-            Cada evento guarda la huella SHA-256 del anterior. Al verificar se recalcula la cadena completa de la organización
+            <strong className="font-medium text-slate-800">Detecta alteraciones o borrados en medio de la bitácora.</strong> Cada evento guarda la huella SHA-256 del anterior. Al verificar se recalcula la cadena completa de la organización
             desde lo almacenado y se avisa en qué evento se rompe, si se rompe. La verificación también queda registrada.
           </p>
+          <p className="mt-2 text-xs text-slate-600">{INTEGRITY_LIMIT}</p>
         </div>
         <button type="button" className="btn-primary" onClick={verify} disabled={busy} aria-busy={busy}>
           <ShieldCheck aria-hidden="true" className="h-4 w-4" />
@@ -61,19 +104,27 @@ function Integrity() {
         </button>
       </div>
       <div aria-live="polite" className="empty:hidden">
-        {result?.ok && (
+        {result?.ok && result.checked === 0 && (
+          <div role="status" className="border-t border-slate-200 bg-slate-50 px-4 py-4 text-slate-900">
+            <p className="flex items-center gap-2 font-semibold">
+              <Inbox aria-hidden="true" className="h-5 w-5 text-slate-500" />
+              No hay eventos que verificar
+            </p>
+            <p className="mt-1 text-xs text-slate-600">{when}</p>
+          </div>
+        )}
+        {result?.ok && result.checked > 0 && (
           <div role="status" className="border-t border-slate-200 bg-emerald-50 px-4 py-4 text-emerald-950">
             <p className="flex items-center gap-2 font-semibold">
               <CircleCheck aria-hidden="true" className="h-5 w-5 text-emerald-700" />
-              Cadena íntegra
+              Los eventos verificados enlazan correctamente
             </p>
             <p className="mt-1 text-sm">
-              Se verificaron <strong className="tabular-nums">{result.checked}</strong> eventos: cada uno enlaza con el anterior y su
-              huella coincide con su contenido.
+              Se verificaron <strong className="tabular-nums">{result.checked}</strong>{' '}
+              {result.checked === 1 ? 'evento' : 'eventos'}: cada uno enlaza con el anterior y su huella coincide con su contenido.
             </p>
-            <p className="mt-1 text-xs text-emerald-900">
-              Verificado el <time dateTime={result.verified_at}>{formatDateTime(result.verified_at)}</time> ({getDisplayTimeZone()}).
-            </p>
+            {result.last_hash && <HeadHash hash={result.last_hash} at={result.last_event_at} />}
+            <p className="mt-3 text-xs text-emerald-900">{when}</p>
           </div>
         )}
         {result && !result.ok && (
@@ -87,9 +138,7 @@ function Integrity() {
               <strong className="tabular-nums">{result.checked}</strong> en orden cronológico. Los eventos posteriores no son confiables
               hasta investigarlo.
             </p>
-            <p className="mt-1 text-xs text-red-900">
-              Verificado el <time dateTime={result.verified_at}>{formatDateTime(result.verified_at)}</time> ({getDisplayTimeZone()}).
-            </p>
+            <p className="mt-1 text-xs text-red-900">{when}</p>
           </div>
         )}
         {error && (
@@ -348,7 +397,7 @@ export default function Gobierno() {
     <div className="space-y-6">
       <PageHeader
         title="Gobierno corporativo"
-        description="Control de la operación: que la bitácora no se pueda alterar sin que se note, quién puede hacer qué y quién aprobó cada decisión."
+        description="Control de la operación: la verificación detecta alteraciones o borrados en medio de la bitácora; además, quién puede hacer qué y quién aprobó cada decisión."
       />
       <Integrity />
       <Approvals totalRoles={matrix.data?.roles.length ?? 0} />

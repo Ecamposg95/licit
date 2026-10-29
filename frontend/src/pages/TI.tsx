@@ -5,6 +5,7 @@ import { Badge, SourceStatusBadge } from '@/components/badges'
 import { DateTimeText } from '@/components/dates'
 import { ErrorPanel, Forbidden, LoadingBlock, TableSkeleton } from '@/components/feedback'
 import { getOpsStatus, type JobBrief, type OpsStatus } from '@/lib/api-governance'
+import type { SourceOut } from '@/lib/types'
 import { humanize, sourceMethodLabel } from '@/lib/labels'
 import { useApi } from '@/lib/useApi'
 import { useAuth } from '@/store/auth'
@@ -24,7 +25,7 @@ const LINE = '#475569'
 const BLUE = '#0F75BC'
 
 const MODULES: { name: string; note: string }[] = [
-  { name: 'Identidad y permisos', note: 'Sesión JWT · 5 roles' },
+  { name: 'Identidad y permisos', note: '' },
   { name: 'Catálogo', note: 'Productos y variantes' },
   { name: 'Oportunidades', note: 'Radar y búsqueda en fuentes' },
   { name: 'Documentos', note: 'Versiones, hash y visor' },
@@ -35,8 +36,32 @@ const MODULES: { name: string; note: string }[] = [
   { name: 'Trabajos', note: '' },
 ]
 
-function Architecture({ ops }: { ops: OpsStatus | undefined }) {
+/** Nombre corto de cada fuente en el diagrama; si no hay uno conocido se usa el nombre completo. */
+const SOURCE_SHORT: Record<string, string> = { dof_sidof: 'SIDOF', comprasmx: 'Compras MX', imss: 'IMSS' }
+
+/** Cómo entra la información de cada fuente, según su `method` real (no se afirma consulta automática si es manual). */
+const METHOD_NOTE: Record<string, string> = {
+  scraper: 'adaptador del servidor',
+  api: 'API',
+  manual: 'carga manual',
+}
+const AUTOMATED = new Set(['scraper', 'api'])
+const MAX_SOURCE_LINES = 3
+
+function sourceLines(sources: SourceOut[] | undefined): { lines: string[]; automated: boolean } {
+  if (!sources) return { lines: ['Leyendo el estado…'], automated: false }
+  // Los escenarios de demostración son datos ficticios, no una fuente oficial.
+  const official = sources.filter((s) => s.method !== 'fixture')
+  const lines = official.map((s) => `${SOURCE_SHORT[s.key] ?? s.name} · ${METHOD_NOTE[s.method] ?? sourceMethodLabel(s.method).toLowerCase()}`)
+  const shown = lines.slice(0, MAX_SOURCE_LINES)
+  if (lines.length > shown.length) shown.push(`+ ${lines.length - shown.length} más`)
+  if (shown.length === 0) shown.push('Sin fuentes configuradas')
+  return { lines: shown, automated: official.some((s) => AUTOMATED.has(s.method)) }
+}
+
+function Architecture({ ops, roleCount }: { ops: OpsStatus | undefined; roleCount: number | null }) {
   const worker = ops === undefined ? null : ops.worker_alive
+  const { lines: sourceTexts, automated } = sourceLines(ops?.sources)
   const storage = ops ? STORAGE_LABEL[ops.storage_backend] : 'Almacenamiento de archivos'
   return (
     <div className="relative overflow-x-auto">
@@ -50,8 +75,8 @@ function Architecture({ ops }: { ops: OpsStatus | undefined }) {
         <desc id="ti-desc">
           El navegador llama a una API FastAPI que contiene los módulos de identidad, catálogo, oportunidades, documentos,
           requisitos, revisión, generación, auditoría y trabajos. La API guarda estados y relaciones en PostgreSQL y los
-          archivos en un bucket o en disco local, y consulta fuentes oficiales desde el servidor. Planta y ERP son
-          integraciones futuras, todavía no construidas.
+          archivos en un bucket o en disco local. Las fuentes oficiales entran por un adaptador del servidor o por carga
+          manual, según la fuente. Planta y ERP son integraciones futuras, todavía no construidas.
         </desc>
         <defs>
           <marker id="ti-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
@@ -84,18 +109,23 @@ function Architecture({ ops }: { ops: OpsStatus | undefined }) {
                   {worker === null ? 'Worker: sin dato' : worker ? '✓ Worker activo' : '✕ Worker detenido'}
                 </text>
               ) : (
-                <text x={x + 14} y={y + 40} fontSize="11.5" fill={INK_SOFT}>{m.note}</text>
+                <text x={x + 14} y={y + 40} fontSize="11.5" fill={INK_SOFT}>
+                  {m.name === 'Identidad y permisos'
+                    ? roleCount === null ? 'Sesión JWT · permisos por rol' : `Sesión JWT · ${roleCount} roles`
+                    : m.note}
+                </text>
               )}
             </g>
           )
         })}
 
-        {/* Fuentes oficiales: se consultan desde el servidor */}
-        <rect x="850" y="162" width="170" height="72" rx="8" fill="#FFFFFF" stroke="#94A3B8" />
-        <text x="865" y="184" fontSize="13" fontWeight="600" fill={INK}>Fuentes oficiales</text>
-        <text x="865" y="202" fontSize="11" fill={INK_SOFT}>SIDOF · Compras MX · IMSS</text>
-        <text x="865" y="218" fontSize="11" fill={INK_SOFT}>consulta desde el servidor</text>
-        <line x1="776" y1="188" x2="848" y2="198" stroke={LINE} strokeWidth="1.5" markerEnd="url(#ti-arrow)" />
+        {/* Fuentes oficiales: cada línea dice cómo entra su información, según la configuración real */}
+        <rect x="830" y="162" width="200" height={36 + sourceTexts.length * 15} rx="8" fill="#FFFFFF" stroke="#94A3B8" />
+        <text x="845" y="184" fontSize="13" fontWeight="600" fill={INK}>Fuentes oficiales</text>
+        {sourceTexts.map((line, i) => (
+          <text key={line} x="845" y={202 + i * 15} fontSize="10.5" fill={INK_SOFT}>{line}</text>
+        ))}
+        {automated && <line x1="776" y1="188" x2="828" y2="196" stroke={LINE} strokeWidth="1.5" markerEnd="url(#ti-arrow)" />}
 
         {/* Integraciones futuras: línea punteada, sin acciones */}
         <rect x="850" y="262" width="170" height="46" rx="8" fill="#F8FAFC" stroke={LINE} strokeWidth="1.5" strokeDasharray="6 4" />
@@ -332,6 +362,9 @@ function Jobs({ jobs }: { jobs: JobBrief[] }) {
 
 export default function TI() {
   const permissions = useAuth((s) => s.me?.permissions ?? [])
+  const meta = useAuth((s) => s.meta)
+  // Número de roles que define el backend (`/meta`); null si todavía no se conoce.
+  const roleCount = meta ? Object.keys(meta.roles).length : null
   const allowed = permissions.includes('source.manage') || permissions.includes('audit.read')
   const ops = useApi(getOpsStatus, [], allowed)
 
@@ -355,7 +388,7 @@ export default function TI() {
           Arquitectura
         </h2>
         <div className="px-2 py-4 sm:px-4">
-          <Architecture ops={ops.data} />
+          <Architecture ops={ops.data} roleCount={roleCount} />
         </div>
       </section>
       {ops.error && <ErrorPanel error={ops.error} onRetry={ops.reload} />}

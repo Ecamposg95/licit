@@ -61,6 +61,10 @@ class IntegrityResult(BaseModel):
     checked: int
     first_broken_id: str | None
     verified_at: datetime
+    # Cabeza de la cadena verificada: hash y hora del evento número `checked`. Nulos si la cadena está rota
+    # o no hay eventos. Para una garantía mayor, este hash debe anclarse fuera de la base de datos.
+    last_hash: str | None = None
+    last_event_at: datetime | None = None
 
 
 class ApprovalTarget(BaseModel):

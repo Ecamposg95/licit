@@ -12,7 +12,7 @@ import { createPortal } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { Check, ChevronDown, LoaderCircle, Users } from 'lucide-react'
 import { ErrorMeta } from '@/components/feedback'
-import { getMe, getMeta, login, toApiError, type ApiError } from '@/lib/api'
+import { ApiError, getMe, getMeta, login, toApiError } from '@/lib/api'
 import { getDemoAccounts, type DemoAccount } from '@/lib/api-governance'
 import { useAuth } from '@/store/auth'
 
@@ -218,6 +218,15 @@ function SignInDialog({ account, onClose }: { account: DemoAccount; onClose: () 
       const token = await login(account.email, password)
       // Permisos y metadatos de la cuenta nueva: la interfaz no debe conservar los de la anterior.
       const [profile, meta] = await Promise.all([getMe(token.access_token), getMeta(token.access_token)])
+      // Defensa: el perfil debe ser el de la cuenta elegida. Si no coincide no se toca la sesión actual.
+      if (profile.email.toLowerCase() !== account.email.toLowerCase()) {
+        throw new ApiError(0, {
+          code: 'profile_mismatch',
+          message: 'El servidor devolvió el perfil de otra cuenta. Se conservó tu sesión actual; intenta de nuevo.',
+          correlation_id: null,
+          details: null,
+        })
+      }
       setSession(token.access_token, profile, meta)
       setPassword('')
       if (sessionPersisted(token.access_token)) {
