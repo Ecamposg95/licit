@@ -63,7 +63,7 @@ const REQ_TYPE: Record<string, string> = {
 }
 export const reqTypeLabel = (c: string | null | undefined) => lookup(REQ_TYPE, c)
 
-const OPERATOR: Record<string, string> = { eq: '=', gte: '≥', lte: '≤', gt: '>', lt: '<' }
+const OPERATOR: Record<string, string> = { eq: '=', gte: '≥', lte: '≤', gt: '>', lt: '<', contains: 'contiene', in: 'uno de' }
 export const operatorSymbol = (c: string | null | undefined) => (c ? OPERATOR[c] ?? c : '=')
 
 const SOURCE_METHOD: Record<string, string> = {
@@ -116,6 +116,7 @@ const RESOURCE_TYPE: Record<string, string> = {
   user: 'Usuario',
   organization: 'Organización',
   source: 'Fuente',
+  bid_workspace: 'Expediente',
 }
 export const resourceTypeLabel = (c: string | null | undefined) => lookup(RESOURCE_TYPE, c)
 
@@ -123,6 +124,15 @@ const AUDIT_ACTION: Record<string, string> = {
   'auth.login': 'Inicio de sesión',
   'opportunity.update': 'Oportunidad actualizada',
   'demo.reset': 'Reinicio del demo',
+  'requirement.evidence_linked': 'Evidencia vinculada (a revisión)',
+  'requirement.review': 'Requisito revisado',
+  'task.assign': 'Actividad asignada',
+  'task.update': 'Actividad actualizada',
+  'workspace.assess': 'Correspondencia evaluada',
+  'workspace.decision': 'Decisión de participar',
+  'workspace.approval': 'Aprobación del expediente',
+  'workspace.approvals_invalidated': 'Aprobaciones sin efecto por un cambio',
+  'workspace.ready': 'Listo para revisión final',
 }
 export const auditActionLabel = (c: string) => AUDIT_ACTION[c] ?? c
 
@@ -138,6 +148,13 @@ const FIELD: Record<string, string> = {
   documents: 'Documentos',
   requirements: 'Requisitos',
   tasks: 'Actividades',
+  status_reason: 'Motivo del estado',
+  reviewer_id: 'Revisor',
+  version: 'Versión',
+  assignee_id: 'Responsable',
+  due_date: 'Fecha límite',
+  title: 'Título',
+  decision: 'Decisión',
 }
 export const fieldLabel = (c: string) => FIELD[c] ?? c
 
