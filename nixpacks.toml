@@ -1,0 +1,16 @@
+[phases.setup]
+nixPkgs = ["python311", "nodejs_20"]
+aptPkgs = ["build-essential", "libpq-dev"]
+
+[phases.install]
+cmds = [
+    "python -m venv --copies /opt/venv && . /opt/venv/bin/activate && pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt"
+]
+
+[phases.build]
+cmds = [
+    "cd frontend && npm ci && npm run build && cd .."
+]
+
+[start]
+cmd = ". /opt/venv/bin/activate && python scripts/railway_init.py && uvicorn app.main:app --host 0.0.0.0 --port $PORT"
