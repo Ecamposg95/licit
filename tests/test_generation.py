@@ -3,6 +3,7 @@ import hashlib
 import io
 import json
 import re
+import time
 import zipfile
 from datetime import date, datetime, timezone
 from decimal import Decimal
@@ -167,6 +168,16 @@ def test_price_without_declared_origin_is_warned(db):
     lot1 = next(l for l in snap["lots"] if l["number"] == "1")
     assert lot1["price_data_kind"] is None
     assert any(w.startswith("Partida 1:") and "procedencia" in w for w in snap["warnings"])
+
+
+def test_historical_reference_is_warned_and_has_no_lots(db):
+    hist = db.scalars(select(Opportunity).where(Opportunity.data_kind == "HISTORICAL")).first()
+    snap = build_snapshot(db, hist)
+    assert "Referencia histórica: no es una oportunidad abierta" in snap["warnings"]
+    assert snap["lots"] == [] and snap["totals"]["known_total"] is None
+    assert "Total no calculable" in snap["totals"]["text"]
+    body = docx_parts(TEMPLATES["propuesta_economica"](snap))["body"]
+    assert "[PENDIENTE: partidas con precio]" in body
 
 
 def test_open_requirements_evidence_and_task_in_snapshot(db):
@@ -463,13 +474,20 @@ def test_manifest_hashes_match(db):
 
 def test_zip_is_reproducible_from_the_same_inputs(db):
     snap = snapshot_of(db)
-    rendered = render_all(snap)
-    first, _ = build_package(snap, rendered)
-    again, _ = build_package(snap, rendered)
-    # Mismas entradas, mismos bytes: ni la fecha de las entradas del ZIP ni el orden cambian.
+    first, _ = build_package(snap, render_all(snap))
+    time.sleep(1.1)       # el reloj de pared no debe influir: ni en los DOCX ni en el XLSX ni en el ZIP
+    again, _ = build_package(snap, render_all(snap))
+    za, zb = open_zip(first), open_zip(again)
+    diff = [n for n in za.namelist() if za.read(n) != zb.read(n)]
+    assert not diff, diff
+    assert [(i.filename, i.date_time, i.compress_type, i.external_attr) for i in za.infolist()] == \
+        [(i.filename, i.date_time, i.compress_type, i.external_attr) for i in zb.infolist()]
     assert hashlib.sha256(first).hexdigest() == hashlib.sha256(again).hexdigest()
-    dates = {i.date_time for i in open_zip(first).infolist()}
-    assert len(dates) == 1
+    zf = open_zip(first)
+    assert len({i.date_time for i in zf.infolist()}) == 1
+    for name in ("matriz.xlsx", "docx/06_propuesta_economica_demo.docx"):
+        inner = zipfile.ZipFile(io.BytesIO(zf.read(name)))
+        assert {i.date_time for i in inner.infolist()} == {zf.infolist()[0].date_time}
 
 
 def test_provenance_counts_real_records(db):
@@ -563,3 +581,298 @@ def test_third_party_excluded(db):
     assert {d["code"] for d in manifest["excluded_documents"]} >= {d["code"] for d in snap["documents"]}
     assert all(d["reason"] for d in manifest["excluded_documents"])
 
+
+# ── F4 · trabajo asíncrono y endpoints ───────────────────────────────────────
+
+import uuid  # noqa: E402
+
+from app.core.security import get_password_hash  # noqa: E402
+from app.models import Job, User, UserRole  # noqa: E402
+from app.services import jobs  # noqa: E402
+from app.services.generation import artifact_id_for  # noqa: E402
+from app.services.storage import get_storage  # noqa: E402
+from tests.conftest import login  # noqa: E402
+
+
+@pytest.fixture
+def responsable(client):
+    return login(client, "responsable@dipromedic.example")
+
+
+def opp_id(code: str = "DEMO-LIC-001") -> str:
+    with SessionLocal() as db:
+        return lic(db, code).id
+
+
+def run_jobs() -> None:
+    """El worker está apagado en las pruebas: se ejecuta lo encolado, como lo haría el hilo del servicio."""
+    with SessionLocal() as db:
+        while jobs.run_pending_once(db) is not None:
+            pass
+
+
+def generate_now(client, headers, templates=None, key=None, code="DEMO-LIC-001") -> dict:
+    """POST generar + ejecutar el trabajo + devolver el trabajo terminado."""
+    body = {"templates": templates} if templates is not None else None
+    r = client.post(f"/api/v1/workspaces/{opp_id(code)}/generate", headers={**headers, "Idempotency-Key": key or uuid.uuid4().hex},
+                    json=body)
+    assert r.status_code == 202, r.text
+    run_jobs()
+    job = client.get(f"/api/v1/jobs/{r.json()['job_id']}", headers=headers).json()
+    assert job["status"] == "done", job
+    return job
+
+
+def artifacts_of(client, headers, code="DEMO-LIC-001") -> list[dict]:
+    r = client.get(f"/api/v1/workspaces/{opp_id(code)}/artifacts", headers=headers)
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def test_generate_idempotent(client, analista):
+    url = f"/api/v1/workspaces/{opp_id()}/generate"
+    headers = {**analista, "Idempotency-Key": "doble-clic-1"}
+    first = client.post(url, headers=headers)
+    again = client.post(url, headers=headers)
+    other = client.post(url, headers={**analista, "Idempotency-Key": "doble-clic-2"})
+    assert first.status_code == again.status_code == other.status_code == 202
+    assert first.json()["job_id"] == again.json()["job_id"] != other.json()["job_id"]
+    with SessionLocal() as db:
+        assert db.query(Job).filter(Job.kind == "generate_artifact").count() == 2
+    run_jobs()
+    # Repetir la clave con el trabajo ya terminado sigue devolviendo ese mismo trabajo y no crea otro paquete.
+    done = client.post(url, headers=headers)
+    assert done.json()["job_id"] == first.json()["job_id"] and done.json()["status"] == "done"
+    assert len(artifacts_of(client, analista)) == 2
+
+
+def test_generate_runs_as_a_job_with_progress_and_audit(client, analista):
+    job = generate_now(client, analista)
+    assert job["kind"] == "generate_artifact" and job["progress"] == 100 and job["message"] == "Borrador listo"
+    result = job["result"]
+    [artifact] = artifacts_of(client, analista)
+    assert result["artifact_id"] == artifact["id"] == artifact_id_for(job["id"])
+    assert artifact["status"] == "borrador" and artifact["sha256"] == result["sha256"]
+    assert re.fullmatch(r"[0-9a-f]{64}", artifact["data_version"]) and artifact["template_version"] == "1.0"
+    assert artifact["created_by"]["email"] == "analista1@dipromedic.example"
+    assert artifact["filename"].startswith("borrador_expediente_DEMO-LIC-001_") and artifact["filename"].endswith(".zip")
+    assert any("Afinidad no calculada" in w for w in artifact["warnings"])
+    with SessionLocal() as db:
+        org_id = db.scalars(select(Organization.id)).first()
+        row = db.get(GeneratedArtifact, artifact["id"])
+        assert row.status == "borrador" and row.storage_key == f"artifacts/{org_id}/{opp_id()}/{artifact['id']}.zip"
+        data = get_storage().get(row.storage_key)
+        assert hashlib.sha256(data).hexdigest() == artifact["sha256"] and len(data) == artifact["size_bytes"]
+        assert row.snapshot["data_version"] == artifact["data_version"]
+        ws = db.scalars(select(BidWorkspace).where(BidWorkspace.opportunity_id == opp_id())).one()
+        assert row.workspace_id == ws.id
+        events = [e for e in db.scalars(select(AuditEvent).where(AuditEvent.action.like("artifact.%")))]
+        [gen] = [e for e in events if e.action == "artifact.generate"]
+        assert gen.resource_id == artifact["id"] and gen.actor.email == "analista1@dipromedic.example"
+        assert gen.after["sha256"] == artifact["sha256"]
+        assert audit.verify_chain(db, org_id)[0] is True
+
+
+def test_generate_reuses_existing_workspace(client, analista):
+    with SessionLocal() as db:
+        opp = lic(db)
+        ws = BidWorkspace(organization_id=opp.organization_id, opportunity_id=opp.id, decision="participar",
+                          affinity={"components": {"familia": 40}, "total": 75, "coverage_complete": True,
+                                    "blocking": []})
+        db.add(ws)
+        db.commit()
+        ws_id = ws.id
+    generate_now(client, analista)
+    generate_now(client, analista)
+    with SessionLocal() as db:
+        assert db.query(BidWorkspace).count() == 1
+        assert {a.workspace_id for a in db.query(GeneratedArtifact)} == {ws_id}
+        # Lo que E guardó en el espacio de trabajo viaja en la instantánea del borrador.
+        assert db.query(GeneratedArtifact).first().snapshot["affinity"]["total"] == 75
+
+
+def test_generated_package_is_readable_end_to_end(client, analista):
+    generate_now(client, analista)
+    [artifact] = artifacts_of(client, analista)
+    r = client.get(f"/api/v1/artifacts/{artifact['id']}/download", headers=analista)
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "application/zip"
+    assert r.headers["content-disposition"].startswith("attachment; filename=\"borrador_expediente_DEMO-LIC-001_")
+    assert r.headers["cache-control"] == "private, no-store" and r.headers["x-content-type-options"] == "nosniff"
+    assert hashlib.sha256(r.content).hexdigest() == artifact["sha256"]
+    zf = open_zip(r.content)
+    manifest = json.loads(zf.read("manifest.json"))
+    assert manifest["data_version"] == artifact["data_version"]
+    for entry in manifest["files"]:
+        assert hashlib.sha256(zf.read(entry["name"])).hexdigest() == entry["sha256"]
+    body = docx_parts(zf.read("docx/06_propuesta_economica_demo.docx"))["body"]
+    assert "Total: 162,000.00 MXN" in body
+    # La vista del manifiesto desde la UI devuelve lo mismo que el archivo.
+    m = client.get(f"/api/v1/artifacts/{artifact['id']}/manifest", headers=analista)
+    assert m.status_code == 200 and m.json() == manifest
+
+
+def test_generate_with_template_subset(client, analista):
+    generate_now(client, analista, templates=["indice", "resumen", "resumen"])
+    [artifact] = artifacts_of(client, analista)
+    zf = open_zip(client.get(f"/api/v1/artifacts/{artifact['id']}/download", headers=analista).content)
+    docx_names = sorted(n for n in zf.namelist() if n.startswith("docx/"))
+    assert docx_names == ["docx/01_resumen_oportunidad.docx", "docx/04_indice_expediente.docx"]
+    # El índice describe lo que de verdad viaja en este paquete.
+    index = docx_parts(zf.read("docx/04_indice_expediente.docx"))["body"]
+    assert "01_resumen_oportunidad.docx" in index and "06_propuesta_economica_demo.docx" not in index
+
+
+def test_generate_rejects_unknown_or_empty_templates(client, analista):
+    url = f"/api/v1/workspaces/{opp_id()}/generate"
+    bad = client.post(url, headers=analista, json={"templates": ["resumen", "carta_firmada"]})
+    assert bad.status_code == 422 and bad.json()["code"] == "validation_error"
+    assert bad.json()["details"][0]["field"] == "templates"
+    assert client.post(url, headers=analista, json={"templates": []}).status_code == 422
+    assert client.post(url, headers={**analista, "Idempotency-Key": "x" * 201}).status_code == 422
+    with SessionLocal() as db:
+        assert db.query(Job).count() == 0
+
+
+def test_download_other_org_404(client, analista):
+    generate_now(client, analista)
+    [artifact] = artifacts_of(client, analista)
+    with SessionLocal() as db:
+        other = Organization(name="Otra organización")
+        db.add(other)
+        db.flush()
+        user = User(organization_id=other.id, email="intruso@otra.example", full_name="Intruso",
+                    hashed_password=get_password_hash("demo-pass"))
+        user.roles = [UserRole(role="analista_comercial")]
+        db.add(user)
+        db.commit()
+    intruder = login(client, "intruso@otra.example")
+    assert client.get(f"/api/v1/artifacts/{artifact['id']}/download", headers=intruder).status_code == 404
+    assert client.get(f"/api/v1/artifacts/{artifact['id']}/manifest", headers=intruder).status_code == 404
+    assert client.get(f"/api/v1/workspaces/{opp_id()}/artifacts", headers=intruder).status_code == 404
+    assert client.post(f"/api/v1/workspaces/{opp_id()}/generate", headers=intruder).status_code == 404
+    assert client.get(f"/api/v1/workspaces/{opp_id()}/generation-preview", headers=intruder).status_code == 404
+    with SessionLocal() as db:
+        assert db.query(AuditEvent).filter(AuditEvent.action == "artifact.download").count() == 0
+
+
+def test_admin_ti_cannot_download(client, analista, ti):
+    generate_now(client, analista)
+    [artifact] = artifacts_of(client, analista)
+    r = client.get(f"/api/v1/artifacts/{artifact['id']}/download", headers=ti)
+    assert r.status_code == 403 and r.json()["code"] == "forbidden"
+    assert client.get(f"/api/v1/artifacts/{artifact['id']}/manifest", headers=ti).status_code == 403
+    assert client.get(f"/api/v1/workspaces/{opp_id()}/artifacts", headers=ti).status_code == 403
+    assert client.post(f"/api/v1/workspaces/{opp_id()}/generate", headers=ti).status_code == 403
+    with SessionLocal() as db:
+        assert db.query(AuditEvent).filter(AuditEvent.action == "artifact.download").count() == 0
+
+
+def test_direccion_downloads_but_does_not_generate(client, analista, direccion):
+    generate_now(client, analista)
+    [artifact] = artifacts_of(client, direccion)
+    assert client.get(f"/api/v1/artifacts/{artifact['id']}/download", headers=direccion).status_code == 200
+    assert client.post(f"/api/v1/workspaces/{opp_id()}/generate", headers=direccion).status_code == 403
+
+
+def test_regenerate_keeps_previous_hash(client, analista):
+    first_job = generate_now(client, analista, key="k1")
+    [first] = artifacts_of(client, analista)
+    with SessionLocal() as db:
+        opp = lic(db)
+        set_lot_price(db, opp, "1", "1600.00")        # cambian los datos entre una generación y otra
+        db.commit()
+    second_job = generate_now(client, analista, key="k2")
+    rows = artifacts_of(client, analista)
+    assert len(rows) == 2 and rows[0]["id"] == second_job["result"]["artifact_id"]      # la más reciente primero
+    old = next(r for r in rows if r["id"] == first["id"])
+    new = rows[0]
+    assert old["sha256"] == first["sha256"] and old["data_version"] == first["data_version"]
+    assert new["data_version"] != old["data_version"] and new["sha256"] != old["sha256"]
+    # El ZIP anterior sigue intacto en el almacenamiento y coincide con la huella que se registró.
+    got = client.get(f"/api/v1/artifacts/{old['id']}/download", headers=analista).content
+    assert hashlib.sha256(got).hexdigest() == first["sha256"]
+    assert first_job["result"]["artifact_id"] == first["id"]
+    assert {a["status"] for a in rows} == {"borrador"}
+    # Y el nuevo ya trae el precio de la partida, no el del catálogo.
+    body = docx_parts(open_zip(client.get(f"/api/v1/artifacts/{new['id']}/download", headers=analista).content)
+                      .read("docx/06_propuesta_economica_demo.docx"))["body"]
+    assert "64,000.00" in body and "1,600.00" in body
+
+
+def test_download_audited(client, analista, direccion):
+    generate_now(client, analista)
+    [artifact] = artifacts_of(client, analista)
+    assert client.get(f"/api/v1/artifacts/{artifact['id']}/download", headers=direccion).status_code == 200
+    with SessionLocal() as db:
+        [event] = db.scalars(select(AuditEvent).where(AuditEvent.action == "artifact.download"))
+        assert event.resource_type == "generated_artifact" and event.resource_id == artifact["id"]
+        assert event.actor.email == "direccion@dipromedic.example"
+        assert event.after["sha256"] == artifact["sha256"] and event.after["filename"] == artifact["filename"]
+        assert audit.verify_chain(db, event.organization_id)[0] is True
+
+
+def test_corrupted_package_is_not_delivered(client, analista):
+    generate_now(client, analista)
+    [artifact] = artifacts_of(client, analista)
+    with SessionLocal() as db:
+        key = db.get(GeneratedArtifact, artifact["id"]).storage_key
+    storage = get_storage()
+    storage.put(key, storage.get(key) + b"x", "application/zip")
+    r = client.get(f"/api/v1/artifacts/{artifact['id']}/download", headers=analista)
+    assert r.status_code == 409 and r.json()["code"] == "integrity_error"
+    storage.delete(key)
+    r = client.get(f"/api/v1/artifacts/{artifact['id']}/download", headers=analista)
+    assert r.status_code == 404 and r.json()["code"] == "file_missing"
+    with SessionLocal() as db:
+        assert db.query(AuditEvent).filter(AuditEvent.action == "artifact.download").count() == 0
+
+
+def test_failed_generation_leaves_no_artifact_or_orphan_file(client, analista, monkeypatch):
+    from app.services import generation
+
+    with SessionLocal() as db:          # el espacio de trabajo ya existe: la falla ocurre después de guardar el ZIP
+        opp = lic(db)
+        db.add(BidWorkspace(organization_id=opp.organization_id, opportunity_id=opp.id))
+        db.commit()
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("falla de auditoría simulada")
+
+    monkeypatch.setattr(generation.audit, "record", boom)
+    r = client.post(f"/api/v1/workspaces/{opp_id()}/generate", headers={**analista, "Idempotency-Key": "falla-1"})
+    run_jobs()
+    job = client.get(f"/api/v1/jobs/{r.json()['job_id']}", headers=analista).json()
+    assert job["status"] == "failed" and "falla de auditoría simulada" in job["error"]
+    assert artifacts_of(client, analista) == []
+    with SessionLocal() as db:
+        org_id = db.scalars(select(Organization.id)).first()
+    key = f"artifacts/{org_id}/{opp_id()}/{artifact_id_for(job['id'])}.zip"
+    assert not get_storage().exists(key)
+    # Repetir la misma clave devuelve el mismo trabajo fallido; la UI usa una clave nueva en cada clic.
+    again = client.post(f"/api/v1/workspaces/{opp_id()}/generate", headers={**analista, "Idempotency-Key": "falla-1"})
+    assert again.json()["job_id"] == r.json()["job_id"] and again.json()["status"] == "failed"
+
+
+def test_preview_matches_what_gets_generated(client, analista, direccion):
+    url = f"/api/v1/workspaces/{opp_id()}/generation-preview"
+    before = client.get(url, headers=direccion)
+    assert before.status_code == 200, before.text
+    preview = before.json()
+    assert preview["notice"] == config.WATERMARK and preview["changed_since_last"] is False
+    assert preview["last_data_version"] is None
+    assert [t["key"] for t in preview["templates"]] == SIX
+    assert len(preview["open_requirements"]) == 7 and preview["totals_text"] == "Total: 162,000.00 MXN"
+    assert any("Afinidad no calculada" in w for w in preview["warnings"])
+    with SessionLocal() as db:
+        assert db.query(GeneratedArtifact).count() == 0 and db.query(BidWorkspace).count() == 0   # solo lee
+    generate_now(client, analista)
+    [artifact] = artifacts_of(client, analista)
+    after = client.get(url, headers=direccion).json()
+    assert after["data_version"] == artifact["data_version"] == preview["data_version"]
+    assert after["last_data_version"] == artifact["data_version"] and after["changed_since_last"] is False
+    with SessionLocal() as db:
+        set_lot_price(db, lic(db), "1", "1700.00")
+        db.commit()
+    changed = client.get(url, headers=direccion).json()
+    assert changed["changed_since_last"] is True and changed["data_version"] != artifact["data_version"]

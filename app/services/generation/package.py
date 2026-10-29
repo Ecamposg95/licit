@@ -8,6 +8,7 @@ import csv
 import hashlib
 import io
 import json
+import re
 import zipfile
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -21,6 +22,7 @@ from app.services.generation import formatting as fmt
 from app.services.generation.docx_templates import DRAFT_NOTICE, HEADER_TEXT, TEMPLATE_FILES, TEMPLATE_VERSION
 from app.services.generation.formatting import pending
 from app.services.generation.matrix import COLUMNS, matrix_rows
+from app.services.generation.ziputil import normalize_zip, zip_date
 
 DATA_FILES = ("matriz.csv", "matriz.xlsx", "README_PENDIENTES.md")
 KINDS = ("REAL", "SYNTHETIC", "HISTORICAL")
@@ -135,7 +137,13 @@ def build_xlsx(snapshot: dict) -> bytes:
 
     buf = io.BytesIO()
     wb.save(buf)
-    return buf.getvalue()
+    # openpyxl sella la fecha de modificación con el reloj al guardar: se fija la de la instantánea.
+    stamp = generated.strftime("%Y-%m-%dT%H:%M:%SZ").encode()
+
+    def fix_core(xml: bytes) -> bytes:
+        return re.sub(rb"(<dcterms:modified[^>]*>)[^<]*", rb"\g<1>" + stamp, xml)
+
+    return normalize_zip(buf.getvalue(), zip_date(snapshot["generated_at"]), {"docProps/core.xml": fix_core})
 
 
 # ── README de pendientes ─────────────────────────────────────────────────────
@@ -220,11 +228,6 @@ def _provenance(snapshot: dict) -> tuple[dict, dict]:
     return total, detail
 
 
-def _zip_date(generated_at: str) -> tuple[int, int, int, int, int, int]:
-    dt = datetime.fromisoformat(generated_at).astimezone(timezone.utc)
-    return (max(dt.year, 1980), dt.month, dt.day, dt.hour, dt.minute, dt.second)
-
-
 def build_package(snapshot: dict, rendered: dict[str, bytes]) -> tuple[bytes, dict]:
     """ZIP con `docx/*.docx`, `matriz.csv`, `matriz.xlsx`, `README_PENDIENTES.md` y `manifest.json`; y su manifiesto."""
     files: dict[str, bytes] = {}
@@ -256,7 +259,7 @@ def build_package(snapshot: dict, rendered: dict[str, bytes]) -> tuple[bytes, di
     }
     files["manifest.json"] = json.dumps(manifest, ensure_ascii=False, indent=2).encode("utf-8")
 
-    date_time = _zip_date(snapshot["generated_at"])
+    date_time = zip_date(snapshot["generated_at"])
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for name, data in files.items():

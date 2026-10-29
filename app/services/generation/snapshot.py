@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.core import config
 from app.models import (
-    BidWorkspace, DataKind, Document, EvidenceLink, Lot, MatchAssessment, Opportunity, Requirement,
+    BidWorkspace, DataKind, Document, Lot, MatchAssessment, Opportunity, Requirement,
     RequirementStatus, Task, User, Variant,
 )
 from app.models.base import utcnow
@@ -214,7 +214,8 @@ def _documents(db: Session, opp: Opportunity, evidence_doc_ids: set[str]) -> lis
         conditions.append(Document.product_id.in_(product_ids))
     if evidence_doc_ids:
         conditions.append(Document.id.in_(evidence_doc_ids))
-    docs = db.scalars(select(Document).where(Document.organization_id == opp.organization_id, or_(*conditions))).unique()
+    docs = db.scalars(select(Document).where(
+        Document.organization_id == opp.organization_id, or_(*conditions))).unique()
     return sorted(docs, key=lambda d: (d.code or "", d.title, d.id))
 
 
@@ -321,6 +322,8 @@ def _warnings(opp: dict, lot_warnings: list[str], totals: dict, reqs: list[dict]
         warnings.append("Fecha de presentación sin verificar")
     if opp["data_kind"] == DataKind.SYNTHETIC.value:
         warnings.append("Procedimiento ficticio (SYNTHETIC): no existe en ninguna fuente oficial")
+    elif opp["data_kind"] == DataKind.HISTORICAL.value:
+        warnings.append("Referencia histórica: no es una oportunidad abierta")
     warnings.append(FISCAL["text"])
     return warnings
 

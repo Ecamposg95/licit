@@ -21,12 +21,12 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Cm, Pt, RGBColor
 
-from app.core import config
 from app.services.generation import formatting as fmt
 from app.services.generation.formatting import pending
 from app.services.generation.matrix import (
     assessment_lines, evidence_lines, mandatory_text, next_action, requirement_text,
 )
+from app.services.generation.ziputil import normalize_zip, zip_date
 
 TEMPLATE_VERSION = "1.0"
 HEADER_TEXT = "Dipromedic · Borrador de expediente · DEMO"
@@ -216,9 +216,10 @@ def _new_document(snapshot: dict, title: str, *, landscape: bool = False):
 
 
 def _bytes(doc) -> bytes:
+    """DOCX reproducible: mismas instantánea y plantilla, mismos bytes (entradas con la fecha de generación)."""
     buf = io.BytesIO()
     doc.save(buf)
-    return buf.getvalue()
+    return normalize_zip(buf.getvalue(), zip_date(doc.core_properties.created))
 
 
 # ── Datos compartidos ────────────────────────────────────────────────────────
@@ -426,7 +427,8 @@ def render_indice(snapshot: dict, included: list[str] | None = None) -> bytes:
         rows = []
         for d in docs:
             if d["third_party"]:
-                where = "Documento de tercero: solo se enlaza" + (f" ({d['external_url']})" if d["external_url"] else "")
+                link = f" ({d['external_url']})" if d["external_url"] else ""
+                where = "Documento de tercero: solo se enlaza" + link
             elif d["has_file"]:
                 where = "No se incluye el archivo en el borrador; se consulta en el Centro documental"
             else:
@@ -444,7 +446,8 @@ def render_indice(snapshot: dict, included: list[str] | None = None) -> bytes:
         for r in missing:
             _bullet(doc, pending(f"documento para {r['code'] or 's/c'}: {r['text']}"))
     else:
-        _para(doc, "Todos los requisitos abiertos tienen al menos una evidencia vinculada (sin revisar no es validada).")
+        _para(doc, "Todos los requisitos abiertos tienen al menos una evidencia vinculada; "
+                   "vinculada sin revisar no equivale a validada.")
     return _bytes(doc)
 
 
@@ -520,8 +523,8 @@ def render_propuesta_tecnica(snapshot: dict) -> bytes:
             _bullet(doc, f"Evaluación de la partida: {line['result']}: {line['explanation']}")
         open_tech = [r for r in _open(snapshot) if r["lot"] == lot["number"] and r["req_type"] == "tecnico"]
         if open_tech:
-            _para(doc, f"Requisitos técnicos abiertos de la partida: {', '.join(r['code'] or 's/c' for r in open_tech)}.",
-                  size=9)
+            codes = ", ".join(r["code"] or "s/c" for r in open_tech)
+            _para(doc, f"Requisitos técnicos abiertos de la partida: {codes}.", size=9)
     _heading(doc, "Alcance", 1)
     _para(doc, "Suministrar una pieza no cubre por sí mismo los servicios o el instrumental que pidan las bases: "
                "esos requisitos se revisan en la matriz de cumplimiento.", size=9)

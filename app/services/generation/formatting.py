@@ -91,7 +91,8 @@ REQ_TYPE_LABEL = {"tecnico": "Técnico", "documental": "Documental", "servicio":
                   "capacidad": "Capacidad", "administrativo": "Administrativo"}
 SCOPE_LABEL = {"empresa": "Empresa", "producto": "Producto", "partida": "Partida", "servicio": "Servicio",
                "expediente": "Expediente"}
-PROCEDURE_LABEL = {"licitacion_publica": "Licitación pública", "invitacion_3": "Invitación a cuando menos tres personas",
+PROCEDURE_LABEL = {"licitacion_publica": "Licitación pública",
+                   "invitacion_3": "Invitación a cuando menos tres personas",
                    "adjudicacion_directa": "Adjudicación directa"}
 CHARACTER_LABEL = {"nacional": "Nacional", "internacional_tlc": "Internacional bajo tratados",
                    "internacional_abierta": "Internacional abierta"}
