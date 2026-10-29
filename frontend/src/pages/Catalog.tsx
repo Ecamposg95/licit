@@ -106,6 +106,10 @@ export default function Catalog() {
     canRead,
   )
 
+  // Al cambiar de pestaña, `products.data` aún trae las fichas de la pestaña anterior hasta que llega la respuesta.
+  const cards = useMemo(() => products.data?.filter((p) => p.data_kind === kind), [products.data, kind])
+  const stale = (products.data?.length ?? 0) > 0 && (cards?.length ?? 0) === 0
+
   const families = useMemo(() => {
     if (tab === 'simulado') {
       return Array.from(new Set((allSimulated.data ?? []).map((p) => p.family))).sort((a, b) => a.localeCompare(b, 'es'))
@@ -206,9 +210,9 @@ export default function Catalog() {
 
         {products.error ? (
           <ErrorPanel error={products.error} onRetry={products.reload} />
-        ) : !products.data ? (
+        ) : !cards || (cards.length === 0 && (products.loading || stale)) ? (
           <LoadingBlock label="Cargando catálogo…" />
-        ) : products.data.length === 0 ? (
+        ) : cards.length === 0 ? (
           <div className="card">
             <EmptyState title="Sin fichas para estos filtros">
               {tab === 'real' && !line && !family && !q
@@ -217,7 +221,7 @@ export default function Catalog() {
             </EmptyState>
           </div>
         ) : (
-          <Results cards={products.data} tab={tab} lineOrder={(lines.data ?? []).map((l) => l.line)} />
+          <Results cards={cards} tab={tab} lineOrder={(lines.data ?? []).map((l) => l.line)} />
         )}
       </Tabs>
     </div>

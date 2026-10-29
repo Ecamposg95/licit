@@ -90,8 +90,11 @@ def test_product_fields_and_review_status(db, imported):
         assert "DIPROMEDIC S.A. DE C.V." in p.attribution and "www.dipromedic.com" in p.attribution
         assert p.images == raw["images"]
         assert p.features == (raw.get("features") or [])
-        assert p.data_quality_notes == raw["data_quality_notes"]
-        assert p.review_status == ("por_revisar" if raw["data_quality_notes"] else "pendiente")
+        # Las observaciones del sitio van primero; la importación sólo agrega las suyas (códigos omitidos).
+        assert p.data_quality_notes[:len(raw["data_quality_notes"])] == raw["data_quality_notes"]
+        extra = p.data_quality_notes[len(raw["data_quality_notes"]):]
+        assert all(n.startswith("Importación: ") for n in extra)
+        assert p.review_status == ("por_revisar" if p.data_quality_notes else "pendiente")
         assert p.line  # toda ficha conserva su línea (Traufix, Corentec, …)
     assert by_ref["traufix_extremidad-superior_titan"].line == "Traufix"
     assert by_ref["corentec_cadera_vastago-id-stem"].line == "Corentec"
@@ -157,6 +160,9 @@ def test_products_without_codes_have_no_variants(db, imported):
 
 def test_every_attribute_has_a_literal_quote(db, imported):
     checked = 0
+    for p in db.scalars(select(Product).where(Product.data_kind == REAL)):
+        for key, attr in p.attributes.items():
+            assert attr.get("source_text") and "value" in attr, (p.external_ref, key)
     for v in _real_variants(db):
         for key, attr in v.attributes.items():
             assert isinstance(attr, dict) and ("value" in attr or "values" in attr), (v.sku, key)
@@ -194,12 +200,126 @@ def test_cyrillic_sku_is_normalized_and_original_is_kept(db, imported):
 
 def test_unusable_and_duplicate_codes_warn_and_are_skipped(db, imported):
     joined = "\n".join(imported.warnings)
-    assert "'igo'" in joined  # Tarfix: el código extraído no es un código
-    assert "tarfix" in joined
+    assert "'-'" in joined and "fresa-ovalada-mediana" in joined  # «-» no es un código
     assert "DPM-143" in joined  # CLAVILOCK con gancho repite los códigos de «sin gancho»
     assert _count(db, Variant, sku="DPM-143") == 1
     skus = [v.sku for v in _real_variants(db)]
     assert len(skus) == len(set(skus))
+
+
+def test_tarfix_code_is_corrected_from_its_own_quote(db, imported):
+    # El fixture traía «igo» (de la palabra «Código»); la cita de la página dice «Código 262».
+    v = _variant(db, "DPM-262")
+    assert v.product.external_ref == "traufix_otras-soluciones_tarfix"
+    assert v.source_text == "Código 262 | 8, 9, 10, 11, 12, 13 y 14mm"
+    assert v.attributes["diameter_mm"]["values"] == [8, 9, 10, 11, 12, 13, 14]
+    assert db.scalars(select(Variant).where(Variant.sku == "DPM-IGO")).first() is None
+    assert not any("'igo'" in w for w in imported.warnings)
+    notes = v.product.data_quality_notes
+    assert len(notes) == 1 and "262" in notes[0] and "2026-10-29" in notes[0]
+    assert v.product.review_status == "por_revisar"
+
+
+def test_omitted_codes_leave_a_note_and_mark_the_ficha_por_revisar(db, imported):
+    # Código inservible («-»): la ficha no tenía observaciones y ahora queda marcada, con la explicación.
+    fresa = db.scalars(select(Product).where(
+        Product.external_ref == "traufix_sports-medicine_miscelaneos-fresa-ovalada-mediana")).first()
+    assert fresa.review_status == "por_revisar"
+    assert len(fresa.data_quality_notes) == 1
+    assert "'-'" in fresa.data_quality_notes[0] and "Fresa redonda - Mediana" in fresa.data_quality_notes[0]
+    assert all(v.review_status == "por_revisar" for v in fresa.variants)
+    # SKU repetido: además de la observación del sitio, la nota de la importación nombra el SKU y la ficha que lo conserva.
+    con_gancho = db.scalars(select(Product).where(
+        Product.external_ref == "traufix_extremidad-superior_clavilock-con-gancho")).first()
+    assert con_gancho.review_status == "por_revisar"
+    assert len(con_gancho.data_quality_notes) == 2 + 2  # 2 del sitio + 143 y 142
+    joined = " ".join(con_gancho.data_quality_notes)
+    assert "DPM-143" in joined and "DPM-142" in joined and "clavilock-sin-gancho" in joined
+
+
+def test_import_notes_are_deterministic_and_do_not_pile_up(db, org, imported):
+    notes_before = {p.external_ref: list(p.data_quality_notes) for p in db.scalars(select(Product))}
+    again = import_catalog(db, org.id, CATALOG)
+    db.commit()
+    assert again.updated == 0
+    assert {p.external_ref: list(p.data_quality_notes) for p in db.scalars(select(Product))} == notes_before
+
+
+def test_audit_and_log_keep_the_full_warning_texts(db, org, caplog):
+    import logging
+    summary = import_catalog(db, org.id, CATALOG)
+    db.commit()
+    assert summary.warnings
+    event = db.scalars(select(AuditEvent).where(AuditEvent.action == "catalog.import")).first()
+    assert event.after["warning_messages"] == summary.warnings  # los textos completos, no solo el conteo
+    assert event.after["warnings"] == len(summary.warnings)
+    with caplog.at_level(logging.WARNING, logger="app.services.catalog_import"):
+        catalog_import.log_summary(summary)
+    logged = [r.getMessage() for r in caplog.records if r.name == "app.services.catalog_import"]
+    assert all(r.levelno == logging.WARNING for r in caplog.records if "DPM-143" in r.getMessage())
+    assert any("DPM-143" in m for m in logged) and len([m for m in logged if m.startswith("catálogo:")]) >= len(summary.warnings)
+
+
+def test_bootstrap_logs_import_warnings(db, monkeypatch, caplog):
+    import logging
+    monkeypatch.setattr(config, "IMPORT_CATALOG", True)
+    with caplog.at_level(logging.WARNING, logger="app.services.catalog_import"):
+        bootstrap(db)
+    assert any("DPM-143" in r.getMessage() and r.levelno == logging.WARNING for r in caplog.records)
+
+
+# ── Atributos que sólo citan el nombre ───────────────────────────────────────
+
+def _norm(text: str) -> str:
+    return " ".join(text.split()).casefold()
+
+
+def _names(raw: dict) -> set[str]:
+    names = {_norm(raw["name"]), _norm(raw.get("page_title") or raw["name"])}
+    names.update(_norm(c) for c in raw.get("card_name") or [])
+    for row in raw.get("variants") or []:
+        names.update(_norm(row[k]) for k in ("name", "Descripción") if row.get(k))
+    return names
+
+
+def test_no_attribute_quotes_a_product_name_or_heading(db, imported):
+    raws = {p["id"]: p for p in _json_products()}
+    products = list(db.scalars(select(Product).where(Product.data_kind == REAL)))
+    checked = 0
+    for p in products:
+        names = _names(raws[p.external_ref])
+        for source in [p.attributes, *[v.attributes for v in p.variants]]:
+            for key, attr in source.items():
+                assert _norm(attr["source_text"]) not in names, (p.external_ref, key)
+                checked += 1
+    assert checked > 500
+    # TITAN: «Húmero proximal» sólo salía del nombre de la ficha, así que no se carga.
+    titan = next(p for p in products if p.external_ref == "traufix_extremidad-superior_titan")
+    assert "region_anatomica" not in titan.attributes
+    assert all("region_anatomica" not in v.attributes for v in titan.variants)
+    # Una advertencia por cada atributo omitido (18 `region_anatomica` y 1 `variantes_fijacion`).
+    skipped = [w for w in imported.warnings if "nombre o encabezado" in w]
+    assert len(skipped) == 19
+    assert any("traufix_extremidad-superior_titan" in w and "region_anatomica" in w for w in skipped)
+
+
+def test_product_level_attributes_are_stored_on_the_product(db, imported):
+    titan = db.scalars(select(Product).where(Product.external_ref == "traufix_extremidad-superior_titan")).first()
+    assert titan.attributes["material"]["value"] == "Aleación de titanio Ti6Al4V ELI"
+    assert titan.attributes["material"]["source_text"]
+    assert "holes" not in titan.attributes  # lo de cada fila queda en la variante
+    # Fichas sin códigos (Corentec…) conservan sus atributos citados.
+    stem = db.scalars(select(Product).where(Product.external_ref == "corentec_cadera_vastago-id-stem")).first()
+    assert stem.variants == []
+    assert stem.attributes["cono"] == {
+        "value": "12/14", "unit": None,
+        "source_text": "Recubrimiento Spray porus de titanio, cono 12/14 compatible, diseño trapezoidal."}
+    assert "variantes_fijacion" not in stem.attributes  # su cita era el nombre de la ficha
+    without_variants = [p for p in db.scalars(select(Product).where(Product.data_kind == REAL)) if not p.variants]
+    assert sum(len(p.attributes) for p in without_variants) >= 55
+    for p in db.scalars(select(Product).where(Product.data_kind == REAL)):
+        for key, attr in p.attributes.items():
+            assert attr["source_text"], (p.external_ref, key)
 
 
 # ── Idempotencia, actualización y reinicio ───────────────────────────────────

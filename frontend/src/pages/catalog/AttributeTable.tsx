@@ -118,7 +118,7 @@ export function CitedValue({ raw }: { raw: unknown }) {
 export default function AttributeTable({ attributes, caption }: { attributes: Record<string, unknown>; caption?: string }) {
   const [showQuotes, setShowQuotes] = useState(false)
   const entries = Object.entries(attributes)
-  if (entries.length === 0) return <p className="text-sm muted">Sin atributos técnicos publicados.</p>
+  if (entries.length === 0) return <p className="text-sm muted">Sin atributos técnicos cargados en el catálogo.</p>
   const anyQuote = entries.some(([, v]) => attributeView(v).quote)
 
   return (

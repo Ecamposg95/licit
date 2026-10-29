@@ -122,7 +122,7 @@ def bootstrap(db: Session) -> Organization:
     if config.IMPORT_CATALOG and db.scalar(select(Product.id).where(
             Product.organization_id == org.id, Product.data_kind == DataKind.REAL.value).limit(1)) is None:
         from app.services import catalog_import  # catalog_import importa este módulo
-        catalog_import.import_catalog(db, org.id, catalog_import.CATALOG_PATH)
+        catalog_import.log_summary(catalog_import.import_catalog(db, org.id, catalog_import.CATALOG_PATH))
     db.commit()
     return org
 

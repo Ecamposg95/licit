@@ -41,8 +41,8 @@ class VariantDetail(VariantOut):
 class ProductDetail(ProductCard):
     features: list[str]
     data_quality_notes: list[str]
-    # Atributos idénticos (valor y cita) en todas las variantes; los de cada fila (orificios,
-    # diámetro, longitud) viajan sólo dentro de la variante.
+    # Atributos de la ficha, cada uno con su cita; los de cada fila (orificios, diámetro, longitud) viajan
+    # sólo dentro de la variante. En datos ficticios (sin ficha) son los que comparten todas las variantes.
     attributes: dict[str, Any]
     variants: list[VariantDetail]
     documents: list[DocumentOut]

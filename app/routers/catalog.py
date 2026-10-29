@@ -1,6 +1,6 @@
 """Catálogo: líneas, productos y detalle con la cita textual de cada atributo."""
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import exists, func, select
+from sqlalchemy import case, exists, func, select
 from sqlalchemy.orm import Session, lazyload
 
 from app.core.database import get_db
@@ -9,7 +9,7 @@ from app.core.tenant import get_owned
 from app.models import Document, Product, User, Variant
 from app.schemas.catalog import LineOut, ProductCard, ProductDetail, VariantDetail
 from app.schemas.v1 import DocumentOut
-from app.services.catalog_import import ROW_ATTRIBUTES, normalize_code
+from app.services.catalog_import import ROW_ATTRIBUTES, SKU_PREFIX, normalize_code
 
 router = APIRouter(prefix="/api/v1/catalog", tags=["catálogo"])
 
@@ -27,7 +27,7 @@ def _card(p: Product, variant_count: int) -> ProductCard:
 
 
 def _common_attributes(variants: list[Variant]) -> dict:
-    """Atributos que comparten todas las variantes con el mismo valor y la misma cita."""
+    """Atributos que comparten todas las variantes con el mismo valor y la misma cita (fichas sin atributos propios)."""
     if not variants:
         return {}
     first = variants[0].attributes or {}
@@ -68,9 +68,14 @@ def list_products(line: str | None = None, family: str | None = None, data_kind:
     if q and q.strip():
         match = Product.name.ilike(_like(q.strip()), escape="\\")
         code = normalize_code(q)  # los SKU se guardan normalizados (sin cirílico ni espacios)
+        if code.startswith(SKU_PREFIX):
+            code = code[len(SKU_PREFIX):]  # «DPM-198» equivale a «198»; el prefijo no cuenta como parte del código
         if code:
+            # Sólo la parte del código: «d» no debe encontrar todo SKU por el «D» de «DPM-».
+            code_part = case((Variant.sku.like(f"{SKU_PREFIX}%"), func.substr(Variant.sku, len(SKU_PREFIX) + 1)),
+                             else_=Variant.sku)
             match = match | exists().where(Variant.product_id == Product.id,
-                                           Variant.sku.ilike(_like(code), escape="\\"))
+                                           code_part.ilike(_like(code), escape="\\"))
         stmt = stmt.where(match)
     products = list(db.scalars(stmt.order_by(Product.family, Product.name, Product.id)))
     counts = dict(db.execute(
@@ -91,6 +96,7 @@ def get_product(product_id: str, db: Session = Depends(get_db),
     return ProductDetail(
         **card.model_dump(), features=list(product.features or []),
         data_quality_notes=list(product.data_quality_notes or []),
-        attributes=_common_attributes(variants),
+        # Atributos citados de la ficha; los datos ficticios (sin ficha) usan lo que comparten sus variantes.
+        attributes=dict(product.attributes or {}) or _common_attributes(variants),
         variants=[VariantDetail.model_validate(v) for v in variants],
         documents=[DocumentOut.model_validate(d) for d in documents])

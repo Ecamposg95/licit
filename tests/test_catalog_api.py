@@ -107,7 +107,8 @@ def test_product_detail_has_citations(client, analista, catalog):
     assert by_sku["DPM-570"]["source_text"].startswith("Versión Izq. (Cód. 570)")
 
     flawed = _get(client, analista, f"/products/{catalog['traufix_extremidad-superior_clavilock-con-gancho']}").json()
-    assert flawed["review_status"] == "por_revisar" and len(flawed["data_quality_notes"]) == 2
+    assert flawed["review_status"] == "por_revisar"
+    assert len(flawed["data_quality_notes"]) == 4  # 2 del sitio y 2 de la importación (SKU 143 y 142 repetidos)
 
 
 def test_detail_lists_only_documents_of_that_product(client, analista, catalog):
@@ -150,3 +151,39 @@ def test_catalog_requires_login_and_isolates_organizations(client, analista, cat
     assert _get(client, analista, f"/products/{foreign_id}").status_code == 404
     assert foreign_id not in {p["id"] for p in _get(client, analista, "/products").json()}
     assert "Producto ajeno" not in {p["name"] for p in _get(client, analista, "/products").json()}
+
+
+def test_detail_of_a_ficha_without_codes_shows_its_cited_attributes(client, analista, catalog):
+    stem = _get(client, analista, f"/products/{catalog['corentec_cadera_vastago-id-stem']}").json()
+    assert stem["variants"] == [] and stem["variant_count"] == 0
+    assert stem["attributes"]["cono"]["value"] == "12/14"
+    assert stem["attributes"]["cono"]["source_text"].startswith("Recubrimiento Spray porus")
+    assert "variantes_fijacion" not in stem["attributes"]  # su cita era el nombre de la ficha
+    titan = _get(client, analista, f"/products/{catalog[TITAN]}").json()
+    assert "region_anatomica" not in titan["attributes"]
+    assert titan["attributes"]["material"]["source_text"]
+
+
+def test_code_search_does_not_match_the_sku_prefix(client, analista, catalog):
+    db = SessionLocal()
+    org = db.scalars(select(Organization)).first()
+    products = list(db.scalars(select(Product).where(Product.organization_id == org.id)))
+    skus = {p.id: [v.sku for v in p.variants] for p in products}
+
+    def expected(q: str) -> set[str]:
+        out = set()
+        for p in products:
+            code_parts = [s[4:] if s.startswith("DPM-") else s for s in skus[p.id]]
+            if q.lower() in p.name.lower() or any(q.upper() in c for c in code_parts):
+                out.add(p.id)
+        return out
+
+    db.close()
+    found = {p["id"] for p in _get(client, analista, "/products", q="d").json()}
+    assert found == expected("d")
+    with_variants = {pid for pid, s in skus.items() if s}
+    # Antes «d» (la de «DPM-») traía todas las fichas con códigos; ahora quedan fuera las que no la tienen.
+    assert with_variants - found
+    # El prefijo se puede escribir: «DPM-198» equivale a «198».
+    assert {p["id"] for p in _get(client, analista, "/products", q="DPM-198").json()} == expected("198")
+    assert _get(client, analista, "/products", q="dpm-").json() == []

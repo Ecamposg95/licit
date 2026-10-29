@@ -325,19 +325,23 @@ function Fiche({ p }: { p: Detail }) {
           <section aria-labelledby="atributos">
             <h2 id="atributos" className="mb-2 text-base font-semibold text-slate-900">
               Atributos técnicos
-              <span className="ml-2 text-xs font-normal text-slate-500">comunes a todas las variantes</span>
+              <span className="ml-2 text-xs font-normal text-slate-500">
+                {synthetic ? 'comunes a todas las variantes' : 'de la ficha del producto'}
+              </span>
             </h2>
-            {Object.keys(p.attributes).length === 0 && p.variant_count === 0 ? (
-              <p className="text-sm muted">
-                Esta ficha no publica códigos, así que no hay variantes con atributos. Las características de arriba son
-                el texto literal del sitio.
-              </p>
-            ) : (
-              <AttributeTable attributes={p.attributes} caption={`Atributos técnicos de ${p.name}`} />
-            )}
+            <AttributeTable attributes={p.attributes} caption={`Atributos técnicos de ${p.name}`} />
           </section>
         </div>
       </div>
+
+      {p.variants.length === 0 && (
+        <section aria-labelledby="variantes" className="mt-8">
+          <h2 id="variantes" className="mb-2 text-base font-semibold text-slate-900">
+            Variantes y códigos
+          </h2>
+          <p className="text-sm muted">Sin códigos cargados en el catálogo; revisa la página de origen.</p>
+        </section>
+      )}
 
       {p.variants.length > 0 && (
         <section aria-labelledby="variantes" className="mt-8">

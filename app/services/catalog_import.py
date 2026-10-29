@@ -3,13 +3,16 @@
 Fuente: `app/fixtures/catalogo_dipromedic.json`, consultado el día que dice `checked_on`. Reglas:
 
 - Cada atributo técnico conserva el texto literal de la página (`source_text`). Un atributo sin cita no se carga.
-- Nunca se deriva un atributo del nombre de la variante ni de su código.
+- Nunca se deriva un atributo del nombre de la ficha, de su encabezado ni del nombre de la variante: un atributo
+  cuya única cita es ese nombre no se carga.
 - Precio, existencias y registro sanitario no vienen del sitio: las variantes REAL los dejan en `None`.
-- Lo ambiguo no se adivina: se omite y queda en `ImportSummary.warnings`.
+- Lo ambiguo no se adivina: se omite y queda en `ImportSummary.warnings` (también en la bitácora y en el log). Si lo
+  omitido es un código, la ficha además recibe una observación y queda `por_revisar`.
 - La importación es idempotente (ids estables por producto y por SKU) y no borra nada.
 """
 import copy
 import json
+import logging
 import re
 from dataclasses import dataclass, field
 from datetime import date
@@ -22,6 +25,8 @@ from sqlalchemy.orm import Session, lazyload
 from app.models import DataKind, Product, Variant
 from app.services import audit
 from app.services.demo_seed import FIXTURES, stable_id
+
+logger = logging.getLogger(__name__)
 
 CATALOG_PATH = FIXTURES / "catalogo_dipromedic.json"
 ATTRIBUTION = "DIPROMEDIC S.A. DE C.V. · www.dipromedic.com"
@@ -106,25 +111,43 @@ def _row_attributes(row: dict, attrs: dict) -> list[str]:
     return uncited
 
 
-def _clean_code(ref: str, raw: Any, warnings: list[str]) -> str | None:
-    """Código normalizado, o `None` (con aviso) si lo que trae el sitio no es un código usable."""
-    text = raw if isinstance(raw, str) else str(raw)
-    norm = normalize_code(text)
+def _usable_code(raw: Any) -> str | None:
+    """Código normalizado, o `None` si lo que trae el sitio no es un código de producto."""
+    norm = normalize_code(raw if isinstance(raw, str) else str(raw))
     if not _CODE_RE.match(norm) or not any(ch.isdigit() for ch in norm):
-        warnings.append(f"{ref}: el valor {text!r} no es un código de producto usable (revisar la página); "
-                        "se omitió esa variante.")
         return None
-    if norm != text.strip():
-        warnings.append(f"{ref}: el código {text!r} se normalizó a {norm!r} (letras cirílicas o espacios); "
-                        "el original queda en la cita de la variante.")
     return norm
 
 
-def _variant_specs(ref: str, raw: dict, warnings: list[str], unmapped: set[str]) -> list[dict]:
+def _squash(text: Any) -> str:
+    return " ".join(str(text).split()).casefold()
+
+
+def _product_attributes(ref: str, raw: dict, warnings: list[str]) -> dict:
+    """Atributos de la ficha con cita propia. Se descartan los que sólo citan el nombre o un encabezado."""
+    names = {_squash(raw["name"])}
+    if raw.get("page_title"):
+        names.add(_squash(raw["page_title"]))
+    names.update(_squash(c) for c in raw.get("card_name") or [])
+    for row in raw.get("variants") or []:
+        names.update(_squash(row[k]) for k in ("name", "Descripción") if row.get(k))
+    out: dict = {}
+    for key, attr in (raw.get("attributes") or {}).items():
+        quote = attr.get("source_text") if isinstance(attr, dict) else None
+        if not quote:
+            warnings.append(f"{ref}: el atributo {key!r} no trae texto original que lo cite; no se cargó.")
+        elif _squash(quote) in names:
+            warnings.append(f"{ref}: el atributo {key!r} ({attr.get('value')!r}) no se cargó: su única cita es el "
+                            f"nombre o encabezado de la ficha («{quote}»), no un dato técnico publicado.")
+        else:
+            out[key] = copy.deepcopy(attr)
+    return out
+
+
+def _variant_specs(ref: str, raw: dict, product_attrs: dict, warnings: list[str], unmapped: set[str]) -> list[dict]:
     """Variantes que describe un producto del JSON, sin tocar la base."""
     specs: list[dict] = []
     uncited_rows: list[str] = []
-    product_attrs = raw.get("attributes") or {}
     rows = raw.get("variants") or []
     if rows:
         for row in rows:
@@ -144,7 +167,7 @@ def _variant_specs(ref: str, raw: dict, warnings: list[str], unmapped: set[str])
             for code, side in codes:
                 specs.append({
                     "raw_code": code if isinstance(code, str) else str(code), "side": side,
-                    "name": base_name + (f" · {side}" if side else ""),
+                    "name": base_name + (f" · {side}" if side else ""), "label": base_name,
                     "attributes": copy.deepcopy(attrs), "source_text": row.get("source_text"),
                 })
         if uncited_rows:
@@ -154,7 +177,7 @@ def _variant_specs(ref: str, raw: dict, warnings: list[str], unmapped: set[str])
         for code in raw.get("codes") or []:
             specs.append({
                 "raw_code": code if isinstance(code, str) else str(code), "side": None, "name": raw["name"],
-                "attributes": copy.deepcopy(product_attrs), "source_text": None,
+                "label": raw["name"], "attributes": copy.deepcopy(product_attrs), "source_text": None,
             })
     return specs
 
@@ -188,14 +211,41 @@ def import_catalog(db: Session, organization_id: str, path: Path) -> ImportSumma
     for line in data["lines"]:
         for raw in line["products"]:
             ref = raw["id"]
-            notes = list(raw.get("data_quality_notes") or [])
+            attrs = _product_attributes(ref, raw, warnings)
+
+            # Variantes: se resuelven antes de tocar la ficha, porque lo omitido cambia sus observaciones.
+            resolved: list[tuple[str, str, dict]] = []
+            import_notes: list[str] = []
+            for spec in _variant_specs(ref, raw, attrs, warnings, unmapped):
+                code, label = spec["raw_code"], spec["label"]
+                norm = _usable_code(code)
+                if norm is None:
+                    problem = f"el valor {code!r} de la fila «{label}» no es un código de producto usable"
+                else:
+                    sku = SKU_PREFIX + norm
+                    owner = claimed.get(sku)
+                    if owner is None and sku in variants and variants[sku].data_kind != DataKind.REAL.value:
+                        owner = "una variante no REAL"
+                    problem = (f"el código {code!r} de la fila «{label}» no se cargó porque el SKU {sku} ya lo usa "
+                               f"la ficha {owner}") if owner is not None else None
+                if problem:
+                    warnings.append(f"{ref}: {problem}; se omitió esa variante.")
+                    import_notes.append(f"Importación: {problem}; esa variante no se cargó. Revisar la página de origen.")
+                    continue
+                if norm != code.strip():
+                    warnings.append(f"{ref}: el código {code!r} se normalizó a {norm!r} (letras cirílicas o espacios); "
+                                    "el original queda en la cita de la variante.")
+                claimed[sku] = ref
+                resolved.append((sku, norm, spec))
+
+            notes = list(raw.get("data_quality_notes") or []) + import_notes
             status = "por_revisar" if notes else "pendiente"
             fields = {
                 "name": raw["name"], "family": raw["family"], "subfamily": raw.get("subfamily"),
                 "line": line["line"], "description": raw.get("description"),
                 "features": list(raw.get("features") or []), "images": list(raw.get("images") or []),
                 "source_url": raw.get("page_url"), "checked_on": checked_on, "attribution": ATTRIBUTION,
-                "data_quality_notes": notes, "data_kind": DataKind.REAL.value,
+                "attributes": attrs, "data_quality_notes": notes, "data_kind": DataKind.REAL.value,
             }
             product = products.get(ref)
             if product is None:
@@ -213,19 +263,7 @@ def import_catalog(db: Session, organization_id: str, path: Path) -> ImportSumma
                 updated += changed
             n_products += 1
 
-            for spec in _variant_specs(ref, raw, warnings, unmapped):
-                norm = _clean_code(ref, spec["raw_code"], warnings)
-                if norm is None:
-                    continue
-                sku = SKU_PREFIX + norm
-                owner = claimed.get(sku)
-                if owner is None and sku in variants and variants[sku].data_kind != DataKind.REAL.value:
-                    owner = "una variante no REAL"
-                if owner is not None:
-                    warnings.append(f"{ref}: el SKU {sku} ya lo usa {owner}; se omitió la variante duplicada "
-                                    f"(la página trae el mismo código en ambas fichas).")
-                    continue
-                claimed[sku] = ref
+            for sku, norm, spec in resolved:
                 source_text = spec["source_text"]
                 if norm != spec["raw_code"].strip():
                     note = f"código original: {spec['raw_code']}"
@@ -261,6 +299,15 @@ def import_catalog(db: Session, organization_id: str, path: Path) -> ImportSumma
             db, organization_id=organization_id, actor_id=None, action="catalog.import",
             resource_type="organization", resource_id=organization_id,
             after={"source": data["source"], "checked_on": data["checked_on"], "products": n_products,
-                   "variants": n_variants, "created": created, "updated": updated, "warnings": len(warnings)})
+                   "variants": n_variants, "created": created, "updated": updated, "warnings": len(warnings),
+                   "warning_messages": list(warnings)})
         db.flush()
     return summary
+
+
+def log_summary(summary: ImportSummary) -> None:
+    """Deja en el log del servicio lo que la importación omitió o normalizó, para que no se pierda."""
+    logger.info("catálogo: %d fichas, %d variantes, %d filas actualizadas, %d avisos.",
+                summary.products, summary.variants, summary.updated, len(summary.warnings))
+    for warning in summary.warnings:
+        logger.warning("catálogo: %s", warning)
