@@ -1,6 +1,10 @@
 """E1–E2: motor determinista de correspondencia, afinidad por componente y vigencia a fecha exigida."""
+from datetime import date, timedelta
 from types import SimpleNamespace
 
+from app.services.affinity import (
+    WEIGHTS, check_validity, compute_affinity, serialize_affinity,
+)
 from app.services.matching import ENGINE_VERSION, RequirementSpec, evaluate, variant_attributes
 
 DPM_198 = {
@@ -110,3 +114,110 @@ def test_variant_attributes_adds_simulated_capacity():
     attrs = variant_attributes(variant)
     assert attrs["holes"] == 8 and attrs["stock_demo"]["value"] == 25
     assert evaluate(_spec("stock_demo", "gte", "200"), attrs).result == "incumple"
+
+
+# ── E2 · afinidad y vigencia ─────────────────────────────────────────────────
+
+def _req(code, req_type, status="pendiente", mandatory=True, attribute=None, rid=None):
+    return SimpleNamespace(id=rid or code, code=code, req_type=req_type, status=status, mandatory=mandatory,
+                           attribute=attribute)
+
+
+def _ass(requirement_id, result):
+    return SimpleNamespace(requirement_id=requirement_id, result=result)
+
+
+def _opportunity(*lot_families):
+    lots = []
+    for lot_family, product_family in lot_families:
+        variant = None if product_family is None else SimpleNamespace(product=SimpleNamespace(family=product_family))
+        lots.append(SimpleNamespace(family=lot_family, proposed_variant=variant))
+    return SimpleNamespace(lots=lots)
+
+
+def _full_scenario(doc_status="cumple_validado"):
+    opp = _opportunity(("Osteosíntesis", "Osteosíntesis"), ("Osteosíntesis", "Osteosíntesis"))
+    reqs = [_req("R1", "tecnico", attribute="holes"), _req("R2", "tecnico", attribute="material"),
+            _req("R3", "documental", status=doc_status), _req("R4", "capacidad", attribute="stock_demo")]
+    asses = [_ass("R1", "coincide"), _ass("R2", "coincide"), _ass("R4", "coincide")]
+    return opp, reqs, asses
+
+
+def test_weights_exact():
+    assert WEIGHTS == {"familia": 40, "atributos": 30, "documental": 20, "capacidad": 10}
+    assert sum(WEIGHTS.values()) == 100
+
+
+def test_complete_scenario_has_total_and_components():
+    a = compute_affinity(*_full_scenario())
+    assert a.total == 100 and a.coverage_complete is True and a.blocking == []
+    assert a.components["atributos"] == {"weight": 30, "score": 1.0, "known": 2, "total": 2}
+    assert a.components["familia"]["known"] == 2 and a.components["familia"]["total"] == 2
+
+
+def test_incomplete_coverage_total_none():
+    opp, reqs, asses = _full_scenario()
+    reqs = [r for r in reqs if r.req_type != "capacidad"]
+    asses = [a for a in asses if a.requirement_id != "R4"]
+    a = compute_affinity(opp, reqs, asses)
+    assert a.components["capacidad"] == {"weight": 10, "score": None, "known": 0, "total": 0}
+    assert a.total is None and a.coverage_complete is False
+
+
+def test_unknown_attribute_lowers_coverage_not_hidden():
+    opp, reqs, asses = _full_scenario()
+    asses = [_ass("R1", "coincide"), _ass("R2", "desconocido"), _ass("R4", "coincide")]
+    a = compute_affinity(opp, reqs, asses)
+    assert a.components["atributos"] == {"weight": 30, "score": 0.5, "known": 1, "total": 2}
+    assert a.coverage_complete is False
+    assert a.total == 85                          # 40 + 15 + 20 + 10
+
+
+def test_blocking_listed_even_with_high_score():
+    opp, reqs, asses = _full_scenario(doc_status="faltante")
+    reqs.append(_req("R5", "documental", status="vencido"))
+    reqs.append(_req("R6", "documental", status="faltante", mandatory=False))
+    a = compute_affinity(opp, reqs, asses)
+    assert a.total is not None and a.total >= 70
+    assert a.blocking == ["R3", "R5"]
+
+
+def test_objective_mismatch_blocks_even_when_status_is_pending():
+    opp, reqs, asses = _full_scenario()
+    asses = [_ass("R1", "incumple"), _ass("R2", "coincide"), _ass("R4", "coincide")]
+    assert compute_affinity(opp, reqs, asses).blocking == ["R1"]
+
+
+def test_family_component_counts_lots_without_product():
+    opp = _opportunity(("Artroplastia de rodilla", "Artroplastia de rodilla"), ("Instrumental", None))
+    a = compute_affinity(opp, [], [])
+    assert a.components["familia"] == {"weight": 40, "score": 0.5, "known": 2, "total": 2}
+
+
+def test_serialize_affinity_shape():
+    data = serialize_affinity(compute_affinity(*_full_scenario()))
+    assert set(data) == {"components", "total", "coverage_complete", "blocking"}
+    assert set(data["components"]) == {"familia", "atributos", "documental", "capacidad"}
+    for comp in data["components"].values():
+        assert set(comp) == {"weight", "score", "known", "total"}
+
+
+TODAY = date(2026, 10, 28)
+
+
+def test_valid_today_expires_before_required():
+    assert check_validity(TODAY + timedelta(days=90), TODAY + timedelta(days=120), TODAY) == "vence_antes"
+
+
+def test_valid_until_required_date():
+    assert check_validity(TODAY + timedelta(days=120), TODAY + timedelta(days=120), TODAY) == "vigente"
+    assert check_validity(TODAY + timedelta(days=5), None, TODAY) == "vigente"
+
+
+def test_expired():
+    assert check_validity(TODAY - timedelta(days=10), TODAY + timedelta(days=30), TODAY) == "vencido"
+    assert check_validity(TODAY - timedelta(days=1), None, TODAY) == "vencido"
+
+
+def test_no_valid_until_is_sin_vigencia():
+    assert check_validity(None, TODAY + timedelta(days=30), TODAY) == "sin_vigencia"
