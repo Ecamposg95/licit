@@ -20,13 +20,13 @@ from typing import Callable
 
 import httpx
 
+from app.core.netguard import USER_AGENT
 from app.sources.base import NoteDetail, NoteHit, ProcedureParsed, SearchPage, SourceUnavailable
 from app.sources.dates_es import has_explicit_mx_timezone, normalize_text, parse_spanish_datetime
 
 SOURCE_KEY = "dof_sidof"
 BASE_URL = "https://sidof.segob.gob.mx"
 SEARCH_PATH = "/busqueda/CargaNotasAvanzadas/"
-USER_AGENT = "LicitDemo/1.0 (+contacto Atlas Technologies)"
 TIMEOUT = httpx.Timeout(20.0, connect=10.0)
 RETRY_WAITS = (1.0, 3.0)
 MAX_BYTES = 5_000_000

@@ -24,6 +24,8 @@ from app.core.errors import AppError
 from app.models import DataKind, Job, Opportunity, OpportunityEvidence, SearchRun, SearchRunStatus, Source, User
 from app.models.base import utcnow
 from app.models.opportunity import SourceStatus
+from app.schemas.search import SearchCounts, SearchErrorOut, SearchQueryOut, SearchRunOut, SearchTermOut
+from app.schemas.v1 import UserRef
 from app.services import audit, jobs
 from app.services.demo_seed import normalize_external_id
 from app.sources.base import NoteDetail, NoteHit, ProcedureParsed, SourceUnavailable
@@ -140,6 +142,19 @@ def summary_counts(counts: dict | None) -> dict:
     """Los cinco conteos del contrato, sin el detalle por término."""
     counts = counts or {}
     return {k: int(counts.get(k) or 0) for k in _COUNT_KEYS}
+
+
+def serialize_run(db: Session, run: SearchRun) -> SearchRunOut:
+    """Contrato público de una corrida (lo usa la API y puede reutilizarlo el panel de dirección)."""
+    author = db.get(User, run.created_by_id) if run.created_by_id else None
+    return SearchRunOut(
+        id=run.id, status=run.status, query=SearchQueryOut(**run.query),
+        counts=SearchCounts(**summary_counts(run.counts)),
+        terms=[SearchTermOut(**t) for t in (run.counts or {}).get("by_term", [])],
+        errors=[SearchErrorOut(**e) for e in (run.errors or [])],
+        job_id=run.job_id, created_by=UserRef.model_validate(author) if author else None,
+        created_at=run.created_at, started_at=run.started_at, finished_at=run.finished_at,
+    )
 
 
 # ── Alta o actualización de un procedimiento ────────────────────────────────
