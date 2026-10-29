@@ -2,7 +2,7 @@
 
 Plataforma para dar seguimiento a licitaciones públicas (IMSS, ISSSTE, SSA, estatales) en las que participa
 Grupo Dipromedic (implantes de trauma y ortopedia). Stack Atlas: **FastAPI + SQLAlchemy + PostgreSQL** (`app/`)
-y **React + Vite + TS + Tailwind + zustand** (`frontend/`), servido por el backend en prod. Deploy en **Railway**.
+y **React + Vite + TS + Tailwind + zustand** (`frontend/`), servido por el backend en prod. Deploy en **Railway** (Dockerfile multi-stage).
 
 ## Reglas
 1. Commit/push solo cuando el usuario lo pida; trabajar en `feat/*` / `fix/*`.
@@ -21,6 +21,17 @@ cd frontend && npm install && npm run dev     # :5173 (proxy /api → :8000)
 cd frontend && npm run build                  # tsc && vite build
 docker compose up -d                          # postgres:17 local
 ```
+
+## Deploy (Railway)
+Proyecto `licit-dipromedic` (workspace Atlas Tech) · servicios `web` + `Postgres` · https://web-production-9afcc.up.railway.app
+
+**No corras `railway up` desde `/mnt/c`**: el CLI sube los archivos como bytes nulos al leerlos desde el FS de Windows.
+Copia los archivos versionados a un dir en el FS de Linux y despliega desde ahí:
+```bash
+D=$(mktemp -d) && git ls-files -z | xargs -0 -I{} cp --parents {} $D/ && cd $D && \
+railway up --project c9c57e25-7e6d-45bf-89d6-361eb5647a96 --environment production --service web --detach
+```
+Tampoco agregues `.dockerignore` mientras esto siga así: el builder también lo recibe corrupto.
 
 ## Variables (Railway)
 `DATABASE_URL` (referencia al Postgres), `SECRET_KEY`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `CORS_ORIGINS`.
