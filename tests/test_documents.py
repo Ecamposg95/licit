@@ -150,6 +150,9 @@ def test_new_version_keeps_previous(client, analista):
     org = org_id()
     storage = get_storage()
     assert storage.get(f"org/{org}/documents/{doc['id']}/v1/ficha.pdf") == v1
+    # La versión 1 sigue descargable por la API después de subir la 2 (D3).
+    assert client.get(f"/api/v1/documents/{doc['id']}/versions/1/download", headers=analista).content == v1
+    assert client.get(f"/api/v1/documents/{doc['id']}/versions/2/download", headers=analista).content == v2
     assert storage.get(f"org/{org}/documents/{doc['id']}/v2/ficha_v2.pdf") == v2
 
 
@@ -203,3 +206,94 @@ def test_upload_validates_form_and_links(client, analista):
     assert upload(client, analista, pdf_bytes(), product_id="no-existe").status_code == 404
     ok = upload(client, analista, pdf_bytes("vig"), valid_until="2027-03-31")
     assert ok.status_code == 201 and ok.json()["valid_until"] == "2027-03-31"
+
+
+# ── D3 · descarga autorizada ─────────────────────────────────────────────────
+
+def download(client, headers, doc_id: str, version: int = 1):
+    return client.get(f"/api/v1/documents/{doc_id}/versions/{version}/download", headers=headers)
+
+
+def test_download_returns_inline_file_with_headers(client, analista):
+    data = pdf_bytes("dl")
+    doc = upload(client, analista, data, filename="Técnica quirúrgica.PDF").json()
+    r = download(client, analista, doc["id"])
+    assert r.status_code == 200
+    assert r.content == data
+    assert r.headers["content-type"] == "application/pdf"
+    assert r.headers["content-length"] == str(len(data))
+    disposition = r.headers["content-disposition"]
+    assert disposition.startswith("inline;")
+    assert "filename*=UTF-8''T%C3%A9cnica%20quir%C3%BArgica.PDF" in disposition
+    assert r.headers["x-content-type-options"] == "nosniff"
+    assert download(client, analista, doc["id"], 7).status_code == 404       # versión inexistente
+    assert client.get(f"/api/v1/documents/{doc['id']}/versions/1/download").status_code == 401
+
+
+def test_download_other_org_404(client, analista):
+    with SessionLocal() as db:
+        other = Organization(name="Otra organización")
+        db.add(other)
+        db.flush()
+        foreign = Document(organization_id=other.id, code="AJENO-1", title="Documento ajeno", scope="empresa",
+                           data_kind="REAL", current_version=1)
+        foreign.versions.append(DocumentVersion(organization_id=other.id, version=1, filename="ajeno.pdf",
+                                                content_type="application/pdf", size_bytes=9, sha256="0" * 64,
+                                                storage_key=f"org/{other.id}/documents/x/v1/ajeno.pdf"))
+        db.add(foreign)
+        db.commit()
+        foreign_id = foreign.id
+        get_storage().put(f"org/{other.id}/documents/x/v1/ajeno.pdf", pdf_bytes("ajeno"), "application/pdf")
+    assert download(client, analista, foreign_id).status_code == 404
+    assert client.get(f"/api/v1/documents/{foreign_id}", headers=analista).status_code == 404
+    assert upload_version(client, analista, foreign_id, pdf_bytes("x")).status_code == 404
+    assert foreign_id not in {d["id"] for d in client.get("/api/v1/documents", headers=analista).json()}
+    with SessionLocal() as db:
+        assert not db.scalars(select(AuditEvent).where(AuditEvent.action == "document.download")).all()
+
+
+def test_download_audited(client, analista):
+    doc = upload(client, analista, pdf_bytes("aud")).json()
+    assert download(client, analista, doc["id"]).status_code == 200
+    with SessionLocal() as db:
+        events = db.scalars(select(AuditEvent).where(AuditEvent.action == "document.download")).all()
+        assert len(events) == 1
+        event = events[0]
+        assert event.resource_type == "document" and event.resource_id == doc["id"]
+        assert event.after["version"] == 1 and event.after["sha256"] == doc["versions"][0]["sha256"]
+        assert event.actor_id is not None
+
+
+def test_third_party_returns_external_url(client, analista):
+    url = "https://www.fabricante-externo.example/ficha.pdf"
+    with SessionLocal() as db:
+        doc = Document(organization_id=org_id(), code="EXT-1", title="Ficha del fabricante (tercero)",
+                       scope="producto", doc_type="ficha_tecnica", data_kind="REAL", current_version=0,
+                       third_party=True, external_url=url)
+        db.add(doc)
+        db.commit()
+        doc_id = doc.id
+    r = download(client, analista, doc_id)
+    assert r.status_code == 409
+    assert r.json()["code"] == "external_document"
+    assert r.json()["details"] == {"external_url": url}
+    listed = {d["id"]: d for d in client.get("/api/v1/documents", headers=analista).json()}
+    assert listed[doc_id]["third_party"] is True and listed[doc_id]["external_url"] == url
+
+
+def test_download_without_file_or_lost_file_is_404(client, analista):
+    # Versión semilla sin archivo adjunto (documento propio, no de tercero).
+    with SessionLocal() as db:
+        doc = Document(organization_id=org_id(), code="SIN-1", title="Sin archivo", scope="empresa",
+                       data_kind="SYNTHETIC", current_version=1)
+        doc.versions.append(DocumentVersion(organization_id=org_id(), version=1, note="Versión semilla sin archivo"))
+        db.add(doc)
+        db.commit()
+        doc_id = doc.id
+    r = download(client, analista, doc_id)
+    assert r.status_code == 404 and r.json()["code"] == "file_missing"
+    # El registro existe pero el objeto desapareció del almacenamiento.
+    up = upload(client, analista, pdf_bytes("perdido")).json()
+    get_storage().delete(f"org/{org_id()}/documents/{up['id']}/v1/ficha.pdf")
+    r = download(client, analista, up["id"])
+    assert r.status_code == 404 and r.json()["code"] == "file_missing"

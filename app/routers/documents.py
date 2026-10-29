@@ -1,8 +1,10 @@
 """Centro documental: listado, carga con versiones y descarga autorizada (frente D)."""
+import io
 from datetime import date
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
+from fastapi.responses import StreamingResponse
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
@@ -14,7 +16,8 @@ from app.core.tenant import get_owned
 from app.models import DataKind, Document, Opportunity, Product, User
 from app.schemas.documents import DocumentOut, DocumentVersionOut
 from app.schemas.v1 import UserRef
-from app.services import uploads
+from app.services import audit, uploads
+from app.services.storage import get_storage
 
 router = APIRouter(prefix="/api/v1/documents", tags=["documentos"])
 
@@ -137,3 +140,47 @@ def upload_version(document_id: str, file: UploadFile = File(...), note: str | N
     db.commit()
     db.refresh(doc)
     return _version_out(db, doc, version)
+
+
+# ── Descarga ─────────────────────────────────────────────────────────────────
+
+def _content_disposition(filename: str) -> str:
+    ascii_name = filename.encode("ascii", "ignore").decode().replace('"', "").strip() or "documento"
+    return f"inline; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(filename, safe='')}"
+
+
+def _chunks(data: bytes, size: int = 64 * 1024):
+    view = io.BytesIO(data)
+    while chunk := view.read(size):
+        yield chunk
+
+
+@router.get("/{document_id}/versions/{version}/download")
+def download_version(document_id: str, version: int, db: Session = Depends(get_db),
+                     user: User = Depends(require_permission(Perm.DOCUMENT_READ))):
+    """Entrega el archivo de una versión (`inline`, para el visor). Cada descarga queda en la bitácora."""
+    doc = get_owned(db, Document, document_id, user, "Documento")
+    row = next((v for v in doc.versions if v.version == version), None)
+    if row is None or not row.storage_key:
+        if doc.third_party and doc.external_url:
+            raise AppError(409, "external_document",
+                           "Es un documento de tercero: solo se enlaza, no se almacena en esta plataforma.",
+                           {"external_url": doc.external_url})
+        if row is None:
+            raise AppError(404, "not_found", "Versión no encontrada")
+        raise AppError(404, "file_missing", "Esta versión no tiene un archivo adjunto.")
+    try:
+        data = get_storage().get(row.storage_key)
+    except FileNotFoundError:
+        raise AppError(404, "file_missing",
+                       "El archivo de esta versión ya no está en el almacenamiento.") from None
+    audit.record(db, organization_id=doc.organization_id, actor_id=user.id, action="document.download",
+                 resource_type="document", resource_id=doc.id,
+                 after={"version": row.version, "filename": row.filename, "sha256": row.sha256})
+    db.commit()    # libera el bloqueo de la bitácora antes de transmitir
+    return StreamingResponse(_chunks(data), media_type=row.content_type or "application/octet-stream", headers={
+        "Content-Length": str(len(data)),
+        "Content-Disposition": _content_disposition(row.filename or "documento"),
+        "X-Content-Type-Options": "nosniff",
+        "Cache-Control": "private, no-store",
+    })
