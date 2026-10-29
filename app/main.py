@@ -1,4 +1,5 @@
 """Licit — demo comercial de licitaciones públicas (white label · Dipromedic · Demo)."""
+import asyncio
 import os
 from contextlib import asynccontextmanager
 
@@ -19,7 +20,8 @@ async def lifespan(_app: FastAPI):
     if config.JOBS_WORKER:
         jobs.start_worker()
     yield
-    jobs.stop_worker()
+    # stop_worker espera hasta 10 s al trabajo en curso: fuera del event loop para no congelarlo.
+    await asyncio.to_thread(jobs.stop_worker)
 
 
 app = FastAPI(title="Licit · Dipromedic Demo API", version="1.0.0", lifespan=lifespan)
