@@ -394,7 +394,7 @@ def _execute(db: Session, job: Job, run: SearchRun, client, state: _State) -> No
             t["status"] = "error"
             t["checked_at"] = utcnow().isoformat()
             t["errors"] += 1
-            state.error(term, "source_unavailable", f"SIDOF no respondió al buscar «{term}»: {exc.reason}")
+            state.error(term, "source_unavailable", exc.reason)       # el término va en su propio campo
         else:
             state.responded += 1
             t["checked_at"] = utcnow().isoformat()
@@ -436,7 +436,8 @@ def _execute(db: Session, job: Job, run: SearchRun, client, state: _State) -> No
         except SourceUnavailable as exc:
             t["errors"] += 1
             state.error(term, "source_unavailable", f"No se pudo leer la nota {cod}: {exc.reason}")
-            failures = failures + 1 if exc.retryable else 0
+            # Tres fallos seguidos, se reintenten o no (un 4xx sistemático también), detienen la lectura.
+            failures += 1
             if failures >= ABORT_AFTER_FAILURES:
                 left = len(queue) - i - 1
                 state.error(None, "aborted", f"Se detuvo la lectura tras {ABORT_AFTER_FAILURES} fallos seguidos de "
@@ -485,7 +486,9 @@ def _finish(db: Session, run: SearchRun, state: _State) -> dict:
     source.status = SourceStatus.INACCESIBLE.value if status == SearchRunStatus.FAILED.value \
         else SourceStatus.ACTIVA.value
     source.last_checked_at = now
-    source.last_error = state.errors[0]["message"][:2000] if state.errors else None
+    first = state.errors[0] if state.errors else None
+    source.last_error = (f"«{first['term']}»: {first['message']}" if first and first["term"] else
+                         first["message"] if first else None)
     audit.record(db, organization_id=run.organization_id, actor_id=run.created_by_id, action="search.finish",
                  resource_type="search_run", resource_id=run.id,
                  after={"status": status, "counts": summary_counts(state.counts),

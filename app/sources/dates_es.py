@@ -23,6 +23,10 @@ _TEXTUAL = re.compile(
     rf"(?<!\d)(?P<day>\d{{1,2}})\s*(?:[oº°]\.?)?\s*(?:de\s+)?(?P<month>{_MONTH_RE})(?![a-z])"
     r"\s*,?\s*(?:del?\s+)?(?:ano\s+)?(?P<year>\d{4})(?!\d)"
 )
+# «07/julio /2026», «20-JULIO-2026»: día, mes en letra y año separados por diagonal o guion.
+_MIXED = re.compile(
+    rf"(?<![\d/-])(?P<day>\d{{1,2}})\s*(?P<sep>[/-])\s*(?P<month>{_MONTH_RE})(?![a-z])\s*(?P=sep)\s*(?P<year>\d{{4}})(?!\d)"
+)
 _NUMERIC = re.compile(
     r"(?<![\d/-])(?P<day>\d{1,2})\s*(?P<sep>[/-])\s*(?P<month>\d{1,2})\s*(?P=sep)\s*(?P<year>\d{4}|\d{2})(?![\d/-])"
 )
@@ -51,6 +55,9 @@ def _date_matches(text: str) -> list[tuple[int, int, int, int, int]]:
     """(inicio, fin, año, mes, día) de cada fecha candidata, en orden de aparición."""
     found = []
     for m in _TEXTUAL.finditer(text):
+        month = _MONTHS[re.sub(r"\s", "", m["month"])]
+        found.append((m.start(), m.end(), _year(m["year"]), month, int(m["day"])))
+    for m in _MIXED.finditer(text):
         month = _MONTHS[re.sub(r"\s", "", m["month"])]
         found.append((m.start(), m.end(), _year(m["year"]), month, int(m["day"])))
     for m in _NUMERIC.finditer(text):

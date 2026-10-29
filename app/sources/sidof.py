@@ -172,7 +172,8 @@ class SidofClient:
             self._sleep(wait)
 
     def _send_once(self, method: str, path: str, data: dict | None) -> tuple[int, bytes]:
-        headers = {"User-Agent": USER_AGENT, "Accept": "application/json, text/html;q=0.8"}
+        # «*/*» a propósito: el servicio de notas responde 406 a «Accept: application/json, ...» (2026-10-29).
+        headers = {"User-Agent": USER_AGENT, "Accept": "*/*"}
         if data is not None:
             headers["X-Requested-With"] = "XMLHttpRequest"
         request = self._http.build_request(method, BASE_URL + path, data=data, headers=headers, timeout=TIMEOUT)
@@ -244,7 +245,7 @@ _BUYER_ACRONYMS = [
 _STATES = [
     ("baja california sur", "Baja California Sur"), ("baja california", "Baja California"),
     ("estado de mexico", "Estado de México"), ("edo. mex", "Estado de México"), ("edo. de mex", "Estado de México"),
-    ("ciudad de mexico", "Ciudad de México"), ("cdmx", "Ciudad de México"),
+    ("ciudad de mexico", "Ciudad de México"), ("cdmx", "Ciudad de México"), ("distrito federal", "Ciudad de México"),
     ("aguascalientes", "Aguascalientes"), ("campeche", "Campeche"), ("chiapas", "Chiapas"),
     ("chihuahua", "Chihuahua"), ("coahuila", "Coahuila"), ("colima", "Colima"), ("durango", "Durango"),
     ("guanajuato", "Guanajuato"), ("jalisco", "Jalisco"), ("michoacan", "Michoacán"), ("nayarit", "Nayarit"),
@@ -265,7 +266,7 @@ def _clean(text: str) -> str:
 
 
 def _strip_quotes(text: str) -> str:
-    return text.strip(" \"'“”«»").strip()
+    return text.strip(" \"'“”‘’«»").strip()
 
 
 class _NoteHTML(HTMLParser):

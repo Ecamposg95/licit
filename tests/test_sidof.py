@@ -217,6 +217,19 @@ def test_fallo_note_with_column_tables():
     assert fallo.state == "Campeche"
 
 
+def test_header_variants_seen_in_live_run():
+    """Casos de la corrida real: «Distrito Federal» en el encabezado y comillas tipográficas dobles."""
+    html = ('<p align="center">INSTITUTO MEXICANO DEL SEGURO SOCIAL</p>'
+            '<p align="center">ORGANO DE OPERACION ADMINISTRATIVA DESCONCENTRADA NORTE DEL DISTRITO FEDERAL</p>'
+            '<table><tr><td>Licitación</td><td>Licitación Pública Número LA-51-GYN-051GYN030-I-75-2026</td></tr>'
+            '<tr><td>Objeto de la Licitación</td><td>‘‘Adquisición de material de osteosíntesis”</td></tr>'
+            '<tr><td>Apertura de proposiciones</td><td>20/julio /2026, 10:00 horas</td></tr></table>')
+    proc = parse_procedures(html)[0]
+    assert proc.state == "Ciudad de México"
+    assert proc.title == "Adquisición de material de osteosíntesis"
+    assert proc.submission_at.astimezone(MX) == datetime(2026, 7, 20, 10, 0, tzinfo=MX)
+
+
 def test_get_note_rejects_non_numeric_code():
     with pytest.raises(ValueError):
         make_client(fixture_transport()).get_note("../../etc/passwd")
@@ -243,6 +256,9 @@ def test_date_only_is_midnight_mexico_city():
     ("22/10/2026 1:30 p.m.", datetime(2026, 10, 22, 13, 30), "datetime"),
     ("MARTES 3 DE NOVIEMBRE DE 2026\n 12:00 HORAS", datetime(2026, 11, 3, 12, 0), "datetime"),
     ("21 de octubre de 2026 a las 25:00 horas", datetime(2026, 10, 21, 0, 0), "date"),
+    # Visto en la corrida real del 2026-10-29 (nota 5793828, ISSSTE): día/mes en letra/año.
+    ("07/julio /2026, 12:00 horas", datetime(2026, 7, 7, 12, 0), "datetime"),
+    ("20-JULIO-2026", datetime(2026, 7, 20, 0, 0), "date"),
 ])
 def test_spanish_formats(text, expected, precision):
     dt, got = parse_spanish_datetime(text)
@@ -317,6 +333,20 @@ def test_rate_limit_sleeps_between_calls(monkeypatch):
     assert len(starts) == 2
     assert starts[1] - starts[0] >= 1.0
     assert any(s >= 1.0 for s in fake.sleeps)
+
+
+def test_note_service_gets_accept_any():
+    """SIDOF responde 406 a `Accept: application/json, ...` en el servicio de notas (observado el 2026-10-29)."""
+    def handler(request):
+        if request.headers.get("Accept") != "*/*":
+            return httpx.Response(406, text="Not Acceptable")
+        if request.url.path.startswith("/dof/sidof/notas/nota/"):
+            return httpx.Response(200, content=fixture("nota_5801639.json"))
+        return httpx.Response(200, content=fixture("search_osteosintesis_2026.json"))
+
+    client = make_client(httpx.MockTransport(handler))
+    assert client.get_note("5801639").cod_nota == "5801639"
+    assert len(client.search("osteosintesis", date(2026, 1, 1), date(2026, 10, 29)).hits) == 79
 
 
 def test_clients_do_not_share_rate_limit_state():

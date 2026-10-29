@@ -268,6 +268,16 @@ def test_note_failures_are_reported_and_abort_after_three(db):
     assert run.counts["new"] == 0
 
 
+def test_systematic_http_error_also_aborts(db):
+    """Un 4xx en todas las notas (p. ej. 406) no se reintenta, pero tres seguidos detienen la corrida."""
+    rejected = SourceUnavailable("dof_sidof", "HTTP 406", retryable=False)
+    cods = ["5801639", "5797331", "5800141", "5800121"]
+    fake = FakeSidof(pages={"osteosintesis": search_page(*cods)}, notes={c: rejected for c in cods})
+    run = launch(db, fake, ["osteosintesis"])
+    assert len(fake.fetched) == 3
+    assert run.errors[-1]["code"] == "aborted" and "1 notas quedaron sin leer" in run.errors[-1]["message"]
+
+
 def test_start_search_is_idempotent_and_audited(db):
     user = analyst(db)
     first = start_search(db, user, ["osteosintesis"], date(2026, 1, 1), date(2026, 10, 29), "clic-1")
