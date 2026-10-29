@@ -11,14 +11,16 @@ from app.core.errors import AppError
 from app.core.permissions import Perm, require_permission
 from app.core.tenant import get_owned
 from app.models import (
-    AuditEvent, Document, EvidenceLink, Lot, Opportunity, Requirement, RequirementStatus, Source, Task,
-    User, Variant,
+    AuditEvent, BidWorkspace, Document, DocumentVersion, EvidenceLink, Lot, MatchAssessment, Opportunity, Requirement,
+    RequirementStatus, Source, Task, User, Variant,
 )
 from app.schemas.v1 import (
-    AuditOut, Derived, DocumentOut, EvidenceOut, LotOut, OpportunityDetail, OpportunityPatch,
-    OpportunityRow, Page, RequirementRow, SourceRef, TaskOut, UserRef,
+    AuditOut, Derived, DocumentOut, LotOut, OpportunityDetail, OpportunityPatch, OpportunityRow, Page, SourceRef,
+    TaskOut, UserRef,
 )
-from app.services import audit
+from app.schemas.workspace import EvidenceDetail, RequirementDetail
+from app.services import audit, review
+from app.services.affinity import check_validity
 from app.services.demo_seed import current_demo_run_id
 from app.services.status import derive_status
 
@@ -140,33 +142,69 @@ def patch_opportunity(opportunity_id: str, payload: OpportunityPatch, db: Sessio
     return get_opportunity(opp.id, db, user)
 
 
-@router.get("/{opportunity_id}/requirements", response_model=list[RequirementRow])
-def opportunity_requirements(opportunity_id: str, db: Session = Depends(get_db),
-                             user: User = Depends(require_permission(Perm.REQUIREMENT_READ))):
-    opp = get_owned(db, Opportunity, opportunity_id, user, "Oportunidad")
-    reqs = list(db.scalars(select(Requirement).where(Requirement.opportunity_id == opp.id)
-                           .order_by(Requirement.code)).unique())
-    tasks = {t.requirement_id: t for t in db.scalars(
-        select(Task).where(Task.opportunity_id == opp.id, Task.status.in_(["pendiente", "en_progreso"]))).unique()}
+def requirement_rows(db: Session, opportunity_id: str, reqs: list[Requirement]) -> list[RequirementDetail]:
+    """Filas de la matriz: requisito, evidencia con quién la cargó y su vigencia, y la actividad abierta."""
+    tasks: dict[str, Task] = {}
+    for t in db.scalars(select(Task).where(Task.opportunity_id == opportunity_id,
+                                           Task.status.in_(review.OPEN_TASK_STATUSES))
+                        .order_by(Task.created_at, Task.code)).unique():
+        tasks.setdefault(t.requirement_id, t)       # la más antigua: la misma que reasigna `assign_task`
+    version_ids = {e.document_version_id for r in reqs for e in r.evidence if e.document_version_id}
+    versions = {v.id: v for v in db.scalars(select(DocumentVersion).where(DocumentVersion.id.in_(version_ids)))} \
+        if version_ids else {}
+    user_ids = {e.created_by_id for r in reqs for e in r.evidence} | {e.reviewer_id for r in reqs for e in r.evidence}
+    user_ids |= {v.uploaded_by_id for v in versions.values()}
+    user_ids.discard(None)
+    users = {u.id: u for u in db.scalars(select(User).where(User.id.in_(user_ids)))} if user_ids else {}
+    assessments = {a.requirement_id: a for a in db.scalars(
+        select(MatchAssessment).where(MatchAssessment.opportunity_id == opportunity_id))}
+    variant_skus = dict(db.execute(select(Variant.id, Variant.sku).where(
+        Variant.id.in_({a.variant_id for a in assessments.values() if a.variant_id}))).all()) if assessments else {}
+    today = review.today_mx()
     out = []
     for r in reqs:
+        a = assessments.get(r.id)
         t = tasks.get(r.id)
-        out.append(RequirementRow(
+        by = review.required_by(db, r)
+        evidence = []
+        for e in r.evidence:
+            v = versions.get(e.document_version_id)
+            evidence.append(EvidenceDetail(
+                id=e.id, document_id=e.document_id, document_code=e.document.code,
+                document_title=e.document.title, document_valid_until=e.document.valid_until,
+                page=e.page, fragment=e.fragment, decision=e.decision,
+                document_version_id=e.document_version_id, document_version=v.version if v else None,
+                document_data_kind=e.document.data_kind, document_page_count=e.document.page_count,
+                created_by=_user_ref(users.get(e.created_by_id)),
+                uploaded_by=_user_ref(users.get(v.uploaded_by_id)) if v else None,
+                reviewer=_user_ref(users.get(e.reviewer_id)), reviewed_at=e.reviewed_at, reason=e.reason,
+                validity=check_validity(e.document.valid_until, by, today)))
+        out.append(RequirementDetail(
             id=r.id, code=r.code, text=r.text, req_type=r.req_type, mandatory=r.mandatory, scope=r.scope,
             lot={"id": r.lot.id, "number": r.lot.number, "description": r.lot.description} if r.lot else None,
             attribute=r.attribute, operator=r.operator, expected_value=r.expected_value, unit=r.unit,
             page=r.page, fragment=r.fragment, source_label=r.source_label, bases_version=r.bases_version,
             status=r.status, status_reason=r.status_reason, reviewer=_user_ref(r.reviewer),
             due_date=r.due_date, required_valid_until=r.required_valid_until, next_action=r.next_action,
-            data_kind=r.data_kind, version=r.version,
-            evidence=[EvidenceOut(
-                id=e.id, document_id=e.document_id, document_code=e.document.code,
-                document_title=e.document.title, document_valid_until=e.document.valid_until,
-                page=e.page, fragment=e.fragment, decision=e.decision) for e in r.evidence],
+            data_kind=r.data_kind, version=r.version, evidence=evidence, required_by=by,
+            assessment={"result": a.result, "explanation": a.explanation, "rule": a.rule,
+                        "engine_version": a.engine_version, "catalog_value": a.catalog_value,
+                        "source_text": a.source_text, "variant_sku": variant_skus.get(a.variant_id),
+                        "assessed_at": a.created_at.isoformat()} if a else None,
             open_task={"id": t.id, "status": t.status, "assignee": t.assignee.full_name if t.assignee else None,
+                       "assignee_id": t.assignee_id,
                        "due_date": t.due_date.isoformat() if t.due_date else None} if t else None,
         ))
     return out
+
+
+@router.get("/{opportunity_id}/requirements", response_model=list[RequirementDetail])
+def opportunity_requirements(opportunity_id: str, db: Session = Depends(get_db),
+                             user: User = Depends(require_permission(Perm.REQUIREMENT_READ))):
+    opp = get_owned(db, Opportunity, opportunity_id, user, "Oportunidad")
+    reqs = list(db.scalars(select(Requirement).where(Requirement.opportunity_id == opp.id)
+                           .order_by(Requirement.code)).unique())
+    return requirement_rows(db, opp.id, reqs)
 
 
 @router.get("/{opportunity_id}/documents", response_model=list[DocumentOut])
@@ -206,6 +244,8 @@ def opportunity_history(opportunity_id: str, db: Session = Depends(get_db),
     ids = [opp.id]
     ids += list(db.scalars(select(Requirement.id).where(Requirement.opportunity_id == opp.id)))
     ids += list(db.scalars(select(Task.id).where(Task.opportunity_id == opp.id)))
+    # Los eventos del expediente (decisión, aprobaciones, evaluación, compuerta) también son de la oportunidad.
+    ids += list(db.scalars(select(BidWorkspace.id).where(BidWorkspace.opportunity_id == opp.id)))
     # Sólo la corrida demo actual: los ensayos previos siguen en la bitácora global.
     events = db.scalars(select(AuditEvent).where(
         AuditEvent.organization_id == user.organization_id, AuditEvent.resource_id.in_(ids),

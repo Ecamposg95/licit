@@ -120,12 +120,13 @@ def bootstrap(db: Session) -> Organization:
     org = ensure_organization(db)
     ensure_sources(db, org)
     ensure_users(db, org)
-    if db.scalar(select(Opportunity.id).where(Opportunity.organization_id == org.id).limit(1)) is None:
-        reset_demo(db, org, actor_id=None)
+    # El catálogo real va antes que la semilla: DEMO-LIC-001 propone variantes REAL (DPM-…) de Traufix.
     if config.IMPORT_CATALOG and db.scalar(select(Product.id).where(
             Product.organization_id == org.id, Product.data_kind == DataKind.REAL.value).limit(1)) is None:
         from app.services import catalog_import  # catalog_import importa este módulo
         catalog_import.log_summary(catalog_import.import_catalog(db, org.id, catalog_import.CATALOG_PATH))
+    if db.scalar(select(Opportunity.id).where(Opportunity.organization_id == org.id).limit(1)) is None:
+        reset_demo(db, org, actor_id=None)
     try:
         # Con disco efímero (sin bucket) los archivos semilla desaparecen en cada despliegue; se reponen.
         demo_documents.ensure_demo_files(db, org.id)
@@ -245,9 +246,48 @@ def _seed_historical(db: Session, org_id: str, refs: list[dict], sources: dict[s
     db.flush()
 
 
+def _real_variants(db: Session, org_id: str, extra: dict, synthetic: dict[str, Variant]) -> dict[str, Variant]:
+    """Variantes REAL del catálogo importado que proponen las partidas (las DEMO-… son las de la semilla)."""
+    wanted = {lot["proposed_variant"] for e in extra["scenarios"].values() for lot in e.get("lots", [])
+              if lot.get("proposed_variant") and lot["proposed_variant"] not in synthetic}
+    if not wanted:
+        return {}
+    return {v.sku: v for v in db.scalars(select(Variant).where(
+        Variant.organization_id == org_id, Variant.sku.in_(wanted), Variant.data_kind == DataKind.REAL.value))}
+
+
+def _proposed_variant(scenario_id: str, lot: dict, synthetic: dict[str, Variant],
+                      real: dict[str, Variant]) -> Variant | None:
+    """La variante propuesta de una partida: ficticia (DEMO-…) o real (DPM-…); si la real no está importada,
+    la ficticia de respaldo, con un aviso (en pruebas el catálogo no se importa)."""
+    sku = lot.get("proposed_variant")
+    if not sku:
+        return None
+    variant = synthetic.get(sku) or real.get(sku)
+    if variant is not None:
+        return variant
+    fallback = synthetic.get(lot.get("fallback_variant") or "")
+    if fallback is not None:
+        log.warning("%s partida %s: la variante REAL %s no está en el catálogo importado; se usa la variante "
+                    "ficticia %s.", scenario_id, lot["number"], sku, fallback.sku)
+    else:
+        log.warning("%s partida %s: la variante %s no existe; la partida queda sin variante propuesta.",
+                    scenario_id, lot["number"], sku)
+    return fallback
+
+
+def _lot_price(lot: dict) -> dict:
+    """Precio unitario de la partida. En los escenarios siempre es ficticio, con su procedencia y moneda."""
+    if not lot.get("unit_price"):
+        return {"unit_price": None, "currency": None, "price_data_kind": None}
+    return {"unit_price": Decimal(lot["unit_price"]), "currency": lot.get("currency") or "MXN",
+            "price_data_kind": lot.get("price_data_kind") or DataKind.SYNTHETIC.value}
+
+
 def _seed_scenarios(db: Session, org_id: str, scenarios: list[dict], extra: dict,
                     variants: dict[str, Variant], sources: dict[str, Source]) -> dict[str, Opportunity]:
     fixture_source = sources.get("escenarios_demo")
+    real = _real_variants(db, org_id, extra, variants)
     opps: dict[str, Opportunity] = {}
     for s in scenarios:
         e = extra["scenarios"].get(s["id"], {})
@@ -272,12 +312,13 @@ def _seed_scenarios(db: Session, org_id: str, scenarios: list[dict], extra: dict
             notes=f"Escenario ficticio. Fechas relativas a DEMO_BASE_DATE ({config.DEMO_BASE_DATE.isoformat()}).",
         )
         for lot in e.get("lots", []):
-            variant = variants.get(lot.get("proposed_variant") or "")
+            variant = _proposed_variant(s["id"], lot, variants, real)
             opp.lots.append(Lot(
                 id=stable_id(org_id, f"{s['id']}:lot:{lot['number']}"), organization_id=org_id,
                 number=lot["number"], description=lot["description"], family=lot.get("family"),
                 quantity=Decimal(lot["quantity"]) if lot.get("quantity") else None, unit=lot.get("unit"),
                 specs=lot.get("specs", {}), proposed_variant_id=variant.id if variant else None,
+                **_lot_price(lot),
             ))
         db.add(opp)
         opps[s["id"]] = opp

@@ -14,6 +14,8 @@ import LotsTab from '@/pages/opportunity/LotsTab'
 import RequirementsTab from '@/pages/opportunity/RequirementsTab'
 import ExpedienteTab from '@/pages/opportunity/ExpedienteTab'
 import { DocumentsTab, HistoryTab, TasksTab } from '@/pages/opportunity/RelatedTabs'
+import WorkspacePanel from '@/pages/opportunity/WorkspacePanel'
+import { getWorkspace } from '@/lib/api-workspace'
 
 const TAB_IDS = ['resumen', 'partidas', 'requisitos', 'documentos', 'actividades', 'expediente', 'historial'] as const
 type TabId = (typeof TAB_IDS)[number]
@@ -86,6 +88,12 @@ export default function OpportunityDetail() {
   const { id = '' } = useParams()
   const [params, setParams] = useSearchParams()
   const detail = useApi(() => getOpportunity(id), [id])
+  const workspace = useApi(() => getWorkspace(id), [id])
+  // Un cambio en la matriz o en el expediente actualiza el panel y los conteos del detalle.
+  const refresh = () => {
+    workspace.reload()
+    detail.reload()
+  }
   const canReqs = useCan('requirement.read')
   const canDocs = useCan('document.read')
   const canTasks = useCan('task.read')
@@ -127,6 +135,16 @@ export default function OpportunityDetail() {
   return (
     <div>
       <Header o={o} />
+      {o.data_kind !== 'HISTORICAL' && (o.lots.length > 0 || reqTotal > 0) && (
+        <div className="mb-5">
+          <WorkspacePanel
+            opportunityId={o.id}
+            view={workspace}
+            onChanged={refresh}
+            onOpenRequirements={() => setTab('requisitos')}
+          />
+        </div>
+      )}
       <Tabs tabs={tabs} active={tab} onChange={setTab} idPrefix="opp">
         {tab === 'resumen' && (
           <SummaryTab
@@ -135,11 +153,17 @@ export default function OpportunityDetail() {
             onReload={detail.reload}
             reloading={detail.loading}
             onOpenRequirements={() => setTab('requisitos')}
+            workspace={workspace.data}
+            onOpenLots={() => setTab('partidas')}
           />
         )}
-        {tab === 'partidas' && <LotsTab lots={o.lots} />}
+        {tab === 'partidas' && <LotsTab lots={o.lots} opportunityId={o.id} workspace={workspace} />}
         {tab === 'requisitos' &&
-          (canReqs ? <RequirementsTab opportunityId={o.id} /> : <Forbidden permission="requirement.read" />)}
+          (canReqs ? (
+            <RequirementsTab opportunityId={o.id} opportunityDataKind={o.data_kind} onChanged={refresh} />
+          ) : (
+            <Forbidden permission="requirement.read" />
+          ))}
         {tab === 'documentos' &&
           (canDocs ? <DocumentsTab opportunityId={o.id} /> : <Forbidden permission="document.read" />)}
         {tab === 'actividades' && (canTasks ? <TasksTab opportunityId={o.id} /> : <Forbidden permission="task.read" />)}

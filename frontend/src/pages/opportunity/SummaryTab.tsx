@@ -9,6 +9,8 @@ import { characterLabel, procedureTypeLabel, resultLabel, verificationLabel } fr
 import { useApi } from '@/lib/useApi'
 import type { OpportunityDetail, OpportunityPatch } from '@/lib/types'
 import { useCan } from '@/store/auth'
+import type { WorkspaceView } from '@/lib/api-workspace'
+import { MatchResultBadge } from '@/pages/opportunity/matchLabels'
 
 const NOT_PUBLISHED = 'No publicada / por verificar'
 
@@ -28,6 +30,47 @@ function Fact({ label, children }: { label: string; children: ReactNode }) {
       <dt className="text-slate-500">{label}</dt>
       <dd className="min-w-0 break-words text-slate-900">{children}</dd>
     </div>
+  )
+}
+
+const RESULT_ORDER = ['coincide', 'incumple', 'desconocido', 'no_comparable']
+
+/** Resumen del motor de correspondencia: cuántos requisitos coinciden, incumplen o se desconocen. */
+function MatchSummary({ workspace, onOpenLots }: { workspace: WorkspaceView; onOpenLots: () => void }) {
+  const counts: Record<string, number> = {}
+  for (const a of workspace.assessments) counts[a.result] = (counts[a.result] ?? 0) + 1
+  const results = RESULT_ORDER.filter((r) => counts[r])
+  const blocking = workspace.affinity?.blocking ?? []
+  return (
+    <section aria-labelledby="correspondencia" className="card">
+      <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+        <h2 id="correspondencia" className="text-sm font-semibold text-slate-800">
+          Correspondencia con el catálogo
+        </h2>
+        <button type="button" onClick={onOpenLots} className="text-sm font-medium text-petrol-700 hover:underline">
+          Ver comparador
+        </button>
+      </div>
+      {results.length === 0 ? (
+        <p className="px-4 py-4 text-sm text-slate-500">
+          Sin evaluar. El motor compara cada requisito con lo que declara el catálogo, con su cita.
+        </p>
+      ) : (
+        <ul className="divide-y divide-slate-100 px-4">
+          {results.map((r) => (
+            <li key={r} className="flex items-center justify-between py-2">
+              <MatchResultBadge result={r} />
+              <span className="text-sm font-semibold tabular-nums">{counts[r]}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {blocking.length > 0 && (
+        <p className="border-t border-slate-100 px-4 py-2.5 text-xs text-red-800">
+          Bloqueantes: <span className="font-medium tabular-nums">{blocking.join(', ')}</span>
+        </p>
+      )}
+    </section>
   )
 }
 
@@ -219,12 +262,16 @@ export default function SummaryTab({
   onReload,
   reloading,
   onOpenRequirements,
+  workspace,
+  onOpenLots,
 }: {
   o: OpportunityDetail
   onSaved: (d: OpportunityDetail) => void
   onReload: () => void
   reloading: boolean
   onOpenRequirements: () => void
+  workspace?: WorkspaceView
+  onOpenLots?: () => void
 }) {
   const tz = getDisplayTimeZone()
   const counts = REQUIREMENT_STATUS_ORDER.filter((s) => o.requirement_counts[s]).concat(
@@ -297,6 +344,8 @@ export default function SummaryTab({
 
         <div className="space-y-6">
           <FollowUp o={o} onSaved={onSaved} onReload={onReload} reloading={reloading} />
+
+          {workspace && o.lots.length > 0 && onOpenLots && <MatchSummary workspace={workspace} onOpenLots={onOpenLots} />}
 
           <section aria-labelledby="estado-req" className="card">
             <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">

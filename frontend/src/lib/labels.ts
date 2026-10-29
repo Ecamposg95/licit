@@ -63,7 +63,7 @@ const REQ_TYPE: Record<string, string> = {
 }
 export const reqTypeLabel = (c: string | null | undefined) => lookup(REQ_TYPE, c)
 
-const OPERATOR: Record<string, string> = { eq: '=', gte: '≥', lte: '≤', gt: '>', lt: '<' }
+const OPERATOR: Record<string, string> = { eq: '=', gte: '≥', lte: '≤', gt: '>', lt: '<', contains: 'contiene', in: 'uno de' }
 export const operatorSymbol = (c: string | null | undefined) => (c ? OPERATOR[c] ?? c : '=')
 
 const SOURCE_METHOD: Record<string, string> = {
@@ -125,6 +125,7 @@ const RESOURCE_TYPE: Record<string, string> = {
   organization: 'Organización',
   source: 'Fuente',
   search_run: 'Búsqueda en vivo',
+  bid_workspace: 'Expediente',
 }
 export const resourceTypeLabel = (c: string | null | undefined) => lookup(RESOURCE_TYPE, c)
 
@@ -142,6 +143,15 @@ const AUDIT_ACTION: Record<string, string> = {
   'document.link_product': 'Documento vinculado a un producto',
   'catalog.import': 'Catálogo importado',
   'demo.reset': 'Reinicio del demo',
+  'requirement.evidence_linked': 'Evidencia vinculada (a revisión)',
+  'requirement.review': 'Requisito revisado',
+  'task.assign': 'Actividad asignada',
+  'task.update': 'Actividad actualizada',
+  'workspace.assess': 'Correspondencia evaluada',
+  'workspace.decision': 'Decisión de participar',
+  'workspace.approval': 'Aprobación del expediente',
+  'workspace.approvals_invalidated': 'Aprobaciones sin efecto por un cambio',
+  'workspace.ready': 'Listo para revisión final',
 }
 export const auditActionLabel = (c: string) => AUDIT_ACTION[c] ?? c
 
@@ -203,6 +213,26 @@ const FIELD: Record<string, string> = {
   updated: 'Actualizados',
   warnings: 'Avisos',
   warning_messages: 'Detalle de avisos',
+  // Campos de los eventos del expediente (requisitos, actividades y aprobaciones)
+  status_reason: 'Motivo del estado',
+  reviewer_id: 'Revisor',
+  assignee_id: 'Responsable',
+  due_date: 'Fecha límite',
+  decision: 'Decisión',
+  workspace: 'Expediente',
+  evidence: 'Evidencia revisada',
+  evidence_id: 'Evidencia',
+  document_code: 'Documento',
+  document_version: 'Versión del documento',
+  page: 'Página',
+  fragment: 'Fragmento',
+  kind: 'Tipo de aprobación',
+  requirement_code: 'Requisito',
+  phase: 'Fase',
+  approvals_stale: 'Aprobaciones desactualizadas',
+  technical_approval_by_id: 'Aprobación técnica',
+  commercial_approval_by_id: 'Aprobación comercial',
+  decision_reason: 'Motivo de la decisión',
 }
 export const fieldLabel = (c: string) => FIELD[c] ?? c
 

@@ -230,6 +230,8 @@ class RequirementRow(BaseModel):
     version: int
     evidence: list[EvidenceOut]
     open_task: dict | None
+    # Evaluación del motor de correspondencia (frente E); None si no es comparable o no se ha evaluado.
+    assessment: dict | None = None
 
 
 class TaskOut(BaseModel):

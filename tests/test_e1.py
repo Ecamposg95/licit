@@ -6,11 +6,13 @@ from types import SimpleNamespace
 
 from sqlalchemy import func, select
 
-from app.core.database import SessionLocal
+from app.core import config
+from app.core.database import Base, SessionLocal, engine
 from app.models import (
     DataKind, Document, Opportunity, Organization, Product, Requirement, Task, User, Variant,
 )
-from app.services.demo_seed import normalize_external_id, reset_demo
+from app.services import catalog_import
+from app.services.demo_seed import bootstrap, normalize_external_id, reset_demo
 from app.services.status import derive_status
 
 NOW = datetime(2026, 10, 28, 12, tzinfo=timezone.utc)
@@ -137,12 +139,67 @@ def test_scenario_without_dates_keeps_nulls(client, analista):
 def test_matrix_for_main_scenario(client, analista):
     opp = client.get("/api/v1/opportunities", params={"q": "DEMO-LIC-001"}, headers=analista).json()["items"][0]
     detail = client.get(f"/api/v1/opportunities/{opp['id']}", headers=analista).json()
-    assert [l["proposed_variant"]["sku"] for l in detail["lots"]] == ["DEMO-PLA-001", "DEMO-PLA-003", "DEMO-CLA-001"]
+    # Sin el catálogo real importado (pruebas), LIC-001 se queda con las variantes ficticias de respaldo.
+    assert [l["proposed_variant"]["sku"] for l in detail["lots"]] == ["DEMO-PLA-001", "DEMO-PLA-003", "DEMO-PLA-002"]
     rows = client.get(f"/api/v1/opportunities/{opp['id']}/requirements", headers=analista).json()
     assert len(rows) == 7
     by_code = {r["code"]: r for r in rows}
     assert by_code["DEMO-REQ-005"]["status"] == "faltante" and by_code["DEMO-REQ-005"]["open_task"] is None
     assert by_code["DEMO-REQ-001"]["open_task"]["assignee"].startswith("Analista")
+
+
+def _lic001_lots(db):
+    opp = db.scalars(select(Opportunity).where(Opportunity.external_id == "DEMO-LIC-001")).one()
+    return sorted(opp.lots, key=lambda l: l.number)
+
+
+def test_lic001_uses_real_traufix():
+    db = SessionLocal()
+    org = db.scalars(select(Organization)).first()
+    catalog_import.import_catalog(db, org.id, catalog_import.CATALOG_PATH)
+    reset_demo(db, org, actor_id=None)
+    db.commit()
+    lots = _lic001_lots(db)
+    assert [l.proposed_variant.sku for l in lots] == ["DPM-198", "DPM-198", "DPM-199"]
+    assert all(l.proposed_variant.data_kind == "REAL" for l in lots)
+    assert all(l.proposed_variant.sku.startswith("DPM-") for l in lots)
+    # Precio ficticio, marcado como tal y con moneda explícita; el producto sigue siendo real.
+    assert all(l.price_data_kind == "SYNTHETIC" and l.currency == "MXN" for l in lots)
+    assert [str(l.unit_price) for l in lots] == ["2450.00", "2680.00", "3120.00"]
+    # Los tres casos son ciertos con lo que la página cita (verificado en el JSON del catálogo).
+    holes = lots[0].proposed_variant.attributes["holes"]
+    assert holes["values"] == [5, 6, 7, 8, 9, 10, 12]
+    assert holes["source_text"] == "Cód. 198 | 5, 6, 7, 8, 9, 10 y 12 orificios"
+    assert "titanio" in lots[0].proposed_variant.attributes["material"]["value"].lower()
+    assert "length_mm" not in lots[2].proposed_variant.attributes
+    # Los demás escenarios siguen con variantes ficticias DEMO-*.
+    lic002 = db.scalars(select(Opportunity).where(Opportunity.external_id == "DEMO-LIC-002")).one()
+    assert lic002.lots[0].proposed_variant.sku == "DEMO-PLA-002"
+    db.close()
+
+
+def test_lic001_falls_back_to_synthetic_without_catalog(caplog):
+    db = SessionLocal()
+    org = db.scalars(select(Organization)).first()
+    with caplog.at_level("WARNING", logger="app.services.demo_seed"):
+        reset_demo(db, org, actor_id=None)
+    db.commit()
+    lots = _lic001_lots(db)
+    assert [l.proposed_variant.sku for l in lots] == ["DEMO-PLA-001", "DEMO-PLA-003", "DEMO-PLA-002"]
+    assert all(l.proposed_variant.data_kind == "SYNTHETIC" for l in lots)
+    assert all(l.price_data_kind == "SYNTHETIC" for l in lots)
+    assert any("DPM-198" in r.getMessage() and "DEMO-PLA-001" in r.getMessage() for r in caplog.records)
+    db.close()
+
+
+def test_bootstrap_imports_catalog_before_seeding(monkeypatch):
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
+    monkeypatch.setattr(config, "IMPORT_CATALOG", True)
+    db = SessionLocal()
+    bootstrap(db)
+    assert [l.proposed_variant.sku for l in _lic001_lots(db)] == ["DPM-198", "DPM-198", "DPM-199"]
+    db.close()
 
 
 # ── Permisos, versiones y aislamiento ────────────────────────────────────────
