@@ -18,7 +18,7 @@ import {
   type PermissionMatrix,
 } from '@/lib/api-governance'
 import { formatDateTime, getDisplayTimeZone } from '@/lib/format'
-import { humanize } from '@/lib/labels'
+import { APPROVAL_KIND_LABEL, DECISION_LABEL, PHASE_LABEL, humanize } from '@/lib/labels'
 import { useApi } from '@/lib/useApi'
 import type { DataKind } from '@/lib/types'
 import { useCan } from '@/store/auth'
@@ -161,12 +161,12 @@ const ACTION_LABEL: Record<string, string> = {
   'artifact.download': 'Descarga de expediente',
 }
 
+// «pendiente» se deja fuera a propósito: en una revisión de requisito es el estado del requisito, no «Sin decisión».
 const OUTCOME_LABEL: Record<string, string> = {
-  participar: 'Participar',
-  no_participar: 'No participar',
-  tecnica: 'Técnica',
-  comercial: 'Comercial',
-  listo_revision_final: 'Listo para revisión final',
+  participar: DECISION_LABEL.participar,
+  no_participar: DECISION_LABEL.no_participar,
+  ...APPROVAL_KIND_LABEL,
+  ...PHASE_LABEL,
 }
 
 function outcomeLabel(outcome: string | null): string | null {

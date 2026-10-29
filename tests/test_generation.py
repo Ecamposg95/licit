@@ -57,6 +57,14 @@ def real_variant(db, org_id: str) -> Variant:
     return variant
 
 
+def clear_lot_prices(db, opp: Opportunity, *numbers: str) -> None:
+    """Quita el precio propio de las partidas indicadas (todas si no se indica): el precio sale de la variante."""
+    for lot in opp.lots:
+        if not numbers or lot.number in numbers:
+            lot.unit_price = lot.currency = lot.price_data_kind = None
+    db.flush()
+
+
 def db_warnings(db) -> list[str]:
     return build_snapshot(db, lic(db))["warnings"]
 
@@ -91,6 +99,7 @@ def test_missing_price_warning_and_partial_total(db):
     opp = lic(db)
     # Partida 1: precio propio; partida 2: variante REAL (sin precio); partida 3: sin variante.
     set_lot_price(db, opp, "1", "1500.00", "SYNTHETIC")
+    clear_lot_prices(db, opp, "2", "3")
     lot2 = next(l for l in opp.lots if l.number == "2")
     lot2.proposed_variant_id = real_variant(db, opp.organization_id).id
     lot3 = next(l for l in opp.lots if l.number == "3")
@@ -116,11 +125,12 @@ def test_missing_price_warning_and_partial_total(db):
 
 def test_partial_total_text_uses_singular_and_plural(db):
     opp = lic(db)
+    clear_lot_prices(db, opp, "3")
     next(l for l in opp.lots if l.number == "3").proposed_variant_id = None
     db.flush()
     db.expire_all()
     text = build_snapshot(db, lic(db))["totals"]["text"]
-    assert text == "Total parcial: 102,000.00 MXN (solo 2 de 3 partidas con precio; falta la partida 3)"
+    assert text == "Total parcial: 151,600.00 MXN (solo 2 de 3 partidas con precio; falta la partida 3)"
     # Tres o más: «2, 3 y 4».
     lots = [{"number": str(n), "subtotal": None if n > 1 else "10.00", "currency": "MXN", "unit_price": None,
              "price_data_kind": None} for n in range(1, 5)]
@@ -128,9 +138,9 @@ def test_partial_total_text_uses_singular_and_plural(db):
 
 
 def test_complete_total_sums_known_subtotals(db):
-    snap = snapshot_of(db)    # variantes DEMO-*: 40×1500 + 20×2100 + 15×4000
-    assert [l["subtotal"] for l in snap["lots"]] == ["60000.00", "42000.00", "60000.00"]
-    assert snap["totals"]["known_total"] == "162000.00" and snap["totals"]["complete"] is True
+    snap = snapshot_of(db)    # precios ficticios de las partidas: 40×2450 + 20×2680 + 15×3120
+    assert [l["subtotal"] for l in snap["lots"]] == ["98000.00", "53600.00", "46800.00"]
+    assert snap["totals"]["known_total"] == "198400.00" and snap["totals"]["complete"] is True
     assert not [w for w in snap["warnings"] if "precio pendiente" in w]
 
 
@@ -141,8 +151,8 @@ def test_mixed_currencies_are_never_added_together(db):
     db.expire_all()
     totals = build_snapshot(db, lic(db))["totals"]
     assert totals["currency"] is None and totals["known_total"] is None
-    # Partida 1: 40×100; partida 3 (catálogo ficticio): 15×4000; partida 2 en dólares: 20×10.
-    assert totals["by_currency"] == {"MXN": "64000.00", "USD": "200.00"}
+    # Partida 1: 40×100; partida 3 (precio ficticio propio): 15×3120; partida 2 en dólares: 20×10.
+    assert totals["by_currency"] == {"MXN": "50800.00", "USD": "200.00"}
     assert any("monedas" in w.lower() for w in db_warnings(db))
 
 
@@ -167,9 +177,16 @@ def test_synthetic_prices_flagged(db):
     assert snap["lots"], "el escenario debe tener partidas"
     for lot in snap["lots"]:
         assert lot["price_data_kind"] == "SYNTHETIC"
+        assert lot["price_source"] == "partida"           # el escenario trae precios ficticios propios
+    assert any("SIMULADO" in w for w in snap["warnings"])
+    # Sin precio en la partida, el de la variante ficticia propuesta (también SIMULADO).
+    clear_lot_prices(db, lic(db))
+    db.expire_all()
+    for lot in snapshot_of(db)["lots"]:
+        assert lot["price_data_kind"] == "SYNTHETIC"
         assert lot["price_source"] == "variante"          # el precio viene del catálogo ficticio
         assert lot["variant"]["data_kind"] == "SYNTHETIC"
-    assert any("SIMULADO" in w for w in snap["warnings"])
+    snap = snapshot_of(db)
     assert snap["totals"]["has_synthetic_prices"] is True
     assert snap["notice"] == config.WATERMARK
 
@@ -298,26 +315,27 @@ def test_all_templates_have_watermark(db):
 def test_economic_totals_text(db):
     snap = snapshot_of(db)
     parts = docx_parts(render_all(snap)["propuesta_economica"])
-    assert "60,000.00" in parts["body"]
-    assert "Total: 162,000.00 MXN" in parts["body"]
+    assert "98,000.00" in parts["body"]
+    assert "Total: 198,400.00 MXN" in parts["body"]
     assert snap["fiscal"]["text"] in parts["body"]
     [table] = tables_of(render_all(snap)["propuesta_economica"])
     assert table[0] == ["Partida", "Descripción", "Cantidad", "Unidad", "Precio unitario", "Moneda", "Subtotal",
                         "Origen del precio"]
     row1 = table[1]
-    assert row1[0] == "1" and row1[2] == "40" and row1[3] == "pieza" and row1[4] == "1,500.00"
-    assert row1[5] == "MXN" and row1[6] == "60,000.00" and row1[7].startswith("SIMULADO")
+    assert row1[0] == "1" and row1[2] == "40" and row1[3] == "pieza" and row1[4] == "2,450.00"
+    assert row1[5] == "MXN" and row1[6] == "98,000.00" and row1[7].startswith("SIMULADO")
 
 
 def test_economic_partial_total_shows_pending_prices(db):
     opp = lic(db)
+    clear_lot_prices(db, opp, "2")
     next(l for l in opp.lots if l.number == "2").proposed_variant_id = real_variant(db, opp.organization_id).id
     db.flush()
     db.expire_all()
     snap = snapshot_of(db)
     data = render_all(snap)["propuesta_economica"]
     body = docx_parts(data)["body"]
-    assert "Total parcial: 120,000.00 MXN" in body
+    assert "Total parcial: 144,800.00 MXN" in body
     row2 = tables_of(data)[0][2]
     assert "[PENDIENTE: precio]" in row2[4] and "[PENDIENTE: precio]" in row2[6]
     assert "SIMULADO" not in row2[7]
@@ -420,11 +438,34 @@ def test_technical_proposal_shows_both_values_and_never_grants_compliance(db):
     body = docx_parts(data)["body"]
     assert "Sin evaluación técnica" in body
     assert "DEMO-PLA-003" in body and "DEMO-SIN-VALIDEZ" in body
-    # Medida incompatible a la vista: la partida 2 exige 12 orificios y el catálogo declara 10.
+    # Medida incompatible a la vista: la partida 2 exige 11 orificios y el catálogo declara 10.
     tables = tables_of(data)
     flat = [cell for t in tables for row in t for cell in row]
-    assert any("12" in c for c in flat) and any(c.strip() == "10" or c.startswith("10 ") for c in flat)
+    assert any("11" in c for c in flat) and any(c.strip() == "10" or c.startswith("10 ") for c in flat)
     assert "Cumple ·" not in body and "cumple_validado" not in body
+
+
+def test_engine_results_and_operators_are_spanish_in_drafts(db):
+    """Integración 2: lo que el motor de E escribe (`coincide`, `incumple`, `desconocido`, `contains`) sale en
+    español en la matriz y en la propuesta técnica, nunca el código crudo."""
+    from app.models import User
+    from app.services import workspace
+    from app.services.generation.matrix import matrix_rows
+
+    opp = lic(db)
+    user = db.scalars(select(User).where(User.email == "analista1@dipromedic.example")).one()
+    workspace.assess(db, user, opp)
+    db.flush()
+    snap = build_snapshot(db, opp)
+    cells = [c for row in matrix_rows(snap) for c in row]
+    text = "\n".join(cells)
+    assert "Coincide: " in text and "Incumple: " in text and "Desconocido: " in text
+    assert not re.search(r"(^|\n)(coincide|incumple|desconocido|no_comparable): ", text)
+    assert "(contiene titanio)" in text and "contains" not in text
+    body = docx_parts(render_all(snap)["propuesta_tecnica"])["body"]
+    flat = " ".join(c for t in tables_of(render_all(snap)["propuesta_tecnica"]) for row in t for c in row)
+    assert "Incumple: " in flat and "incumple: " not in flat and "contains" not in body + flat
+    assert "contiene titanio" in flat
 
 
 def test_technical_proposal_cites_assessments_and_catalog_credit(db):
@@ -567,15 +608,15 @@ def test_xlsx_money_cells_are_numbers_with_format_and_the_watermark(db):
     assert header[:8] == ["Partida", "Descripción", "Cantidad", "Unidad", "Precio unitario", "Moneda", "Subtotal",
                           "Origen del precio"]
     row1 = [c.value for c in lots[4]]
-    assert row1[0] == "1" and Decimal(str(row1[2])) == Decimal("40") and Decimal(str(row1[4])) == Decimal("1500")
-    assert Decimal(str(row1[6])) == Decimal("60000.00") and row1[7].startswith("SIMULADO")
+    assert row1[0] == "1" and Decimal(str(row1[2])) == Decimal("40") and Decimal(str(row1[4])) == Decimal("2450")
+    assert Decimal(str(row1[6])) == Decimal("98000.00") and row1[7].startswith("SIMULADO")
     assert isinstance(row1[6], (int, float))
     assert lots["G4"].number_format == "#,##0.00" and lots["E4"].number_format == "#,##0.00"
     notes = [c.value for row in lots.iter_rows(min_row=8) for c in row if isinstance(c.value, str)]
     assert any("coma flotante" in n and "DOCX" in n for n in notes)
     summary = {r[0].value: r[1].value for r in wb["Resumen"].iter_rows(min_row=3) if r[0].value}
     assert summary["Versión de datos"] == snap["data_version"]
-    assert summary["Total"] == "Total: 162,000.00 MXN"
+    assert summary["Total"] == "Total: 198,400.00 MXN"
 
 
 def test_xlsx_money_round_trips_to_the_exact_decimal_on_awkward_cents(db):
@@ -787,7 +828,7 @@ def test_generated_package_is_readable_end_to_end(client, analista):
     for entry in manifest["files"]:
         assert hashlib.sha256(zf.read(entry["name"])).hexdigest() == entry["sha256"]
     body = docx_parts(zf.read("docx/06_propuesta_economica_demo.docx"))["body"]
-    assert "Total: 162,000.00 MXN" in body
+    assert "Total: 198,400.00 MXN" in body
     # La vista del manifiesto desde la UI devuelve lo mismo que el archivo.
     m = client.get(f"/api/v1/artifacts/{artifact['id']}/manifest", headers=analista)
     assert m.status_code == 200 and m.json() == manifest
@@ -943,7 +984,7 @@ def test_preview_matches_what_gets_generated(client, analista, direccion):
     assert preview["notice"] == config.WATERMARK and preview["changed_since_last"] is False
     assert preview["last_data_version"] is None
     assert [t["key"] for t in preview["templates"]] == SIX
-    assert len(preview["open_requirements"]) == 7 and preview["totals_text"] == "Total: 162,000.00 MXN"
+    assert len(preview["open_requirements"]) == 7 and preview["totals_text"] == "Total: 198,400.00 MXN"
     assert any("Afinidad no calculada" in w for w in preview["warnings"])
     with SessionLocal() as db:
         assert db.query(GeneratedArtifact).count() == 0 and db.query(BidWorkspace).count() == 0   # solo lee

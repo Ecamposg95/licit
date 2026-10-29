@@ -316,16 +316,3 @@ function sessionPersisted(token: string): boolean {
     return false
   }
 }
-
-/**
- * Monta el selector dentro de `#account-switcher-slot` (el hueco de la barra superior del Layout).
- * Se renderiza en cualquier parte del árbol autenticado; si el hueco no existe no dibuja nada.
- */
-export function AccountSwitcherSlot() {
-  const { pathname } = useLocation()
-  const [slot, setSlot] = useState<HTMLElement | null>(null)
-  useEffect(() => {
-    setSlot(document.getElementById('account-switcher-slot'))
-  }, [pathname])
-  return slot ? createPortal(<AccountSwitcher />, slot) : null
-}

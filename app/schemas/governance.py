@@ -5,6 +5,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from app.core.permissions import Perm
+from app.schemas.search import SearchRunOut
 from app.schemas.v1 import ORM, OpportunityRow, SourceOut, UserRef
 
 # Texto en español de cada permiso para la matriz de gobierno. Una prueba exige que no falte ninguno.
@@ -118,16 +119,6 @@ class KindSummary(BaseModel):
     por_estado: dict[str, int]
 
 
-class SearchRunBrief(ORM):
-    """Mínimo de una corrida de búsqueda para el panel (el frente C tiene el serializador completo)."""
-    id: str
-    status: str
-    started_at: datetime | None
-    finished_at: datetime | None
-    counts: dict[str, Any]
-    errors: list[Any]
-
-
 class ScenarioAtRisk(BaseModel):
     external_id: str
     opportunity_id: str
@@ -139,7 +130,7 @@ class ScenarioAtRisk(BaseModel):
 class DirectionDashboard(BaseModel):
     by_data_kind: dict[str, KindSummary]
     upcoming_real: list[OpportunityRow]
-    last_search: SearchRunBrief | None
+    last_search: SearchRunOut | None          # el contrato de la búsqueda en vivo (frente C), sin recortes
     scenarios_at_risk: list[ScenarioAtRisk]
 
 

@@ -4,6 +4,7 @@ import DocumentsTable from '@/components/DocumentsTable'
 import TasksTable from '@/components/TasksTable'
 import { EmptyState, ErrorPanel, TableSkeleton } from '@/components/feedback'
 import { getOpportunityDocuments, getOpportunityHistory, getOpportunityTasks, listUsers } from '@/lib/api'
+import { phaseLabel } from '@/lib/labels'
 import { useApi } from '@/lib/useApi'
 import type { AuditOut } from '@/lib/types'
 
@@ -45,12 +46,6 @@ export function TasksTab({ opportunityId }: { opportunityId: string }) {
   )
 }
 
-const PHASE_TEXT: Record<string, string> = {
-  analisis: 'Análisis',
-  preparacion: 'Preparación del expediente',
-  listo_revision_final: 'Listo para revisión final',
-  descartada: 'Descartada',
-}
 const EVIDENCE_TEXT: Record<string, string> = { aceptada: 'aceptada', rechazada: 'rechazada', propuesta: 'propuesta' }
 
 /** Los eventos de requisitos guardan el efecto en el expediente y las evidencias como objetos: se muestran en texto. */
@@ -63,7 +58,7 @@ function readable(events: AuditOut[]): AuditOut[] {
     if (ws && typeof ws === 'object') {
       next.workspace = [
         ws.approvals_cleared ? 'Aprobaciones anuladas por este cambio' : 'Sin aprobaciones que anular',
-        ws.phase ? `fase: ${PHASE_TEXT[ws.phase] ?? ws.phase}` : null,
+        ws.phase ? `fase: ${phaseLabel(ws.phase)}` : null,
       ]
         .filter(Boolean)
         .join(' · ')

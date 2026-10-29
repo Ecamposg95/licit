@@ -143,7 +143,8 @@ def assess(opportunity_id: str, db: Session = Depends(get_db), user: User = Depe
 def decide(opportunity_id: str, payload: DecisionIn, db: Session = Depends(get_db),
            user: User = Depends(require_permission(Perm.BID_DECIDE))):
     opp = _opportunity(db, opportunity_id, user)
-    workspace.decide(db, user, workspace.get_or_create_workspace(db, opp), payload.decision, payload.reason)
+    ws = workspace.get_or_create_workspace(db, opp, user.id, workspace.ORIGIN_DECISION)
+    workspace.decide(db, user, ws, payload.decision, payload.reason)
     db.commit()
     return workspace_view(db, opp)
 
@@ -153,7 +154,8 @@ def approve(opportunity_id: str, payload: ApprovalIn, db: Session = Depends(get_
             user: User = Depends(get_current_user)):
     """Técnica (requirement.review) o comercial (pricing.approve); la misma persona no da las dos."""
     opp = _opportunity(db, opportunity_id, user)
-    workspace.approve(db, user, workspace.get_or_create_workspace(db, opp), payload.kind)
+    ws = workspace.get_or_create_workspace(db, opp, user.id, workspace.ORIGIN_APPROVAL)
+    workspace.approve(db, user, ws, payload.kind)
     db.commit()
     return workspace_view(db, opp)
 
@@ -163,6 +165,6 @@ def mark_ready(opportunity_id: str, db: Session = Depends(get_db),
                user: User = Depends(require_permission(Perm.BID_DECIDE))):
     """Compuerta «listo para revisión final»: 409 `not_ready` con los bloqueantes si falta algo."""
     opp = _opportunity(db, opportunity_id, user)
-    workspace.mark_ready(db, user, workspace.get_or_create_workspace(db, opp))
+    workspace.mark_ready(db, user, workspace.get_or_create_workspace(db, opp, user.id, workspace.ORIGIN_READY))
     db.commit()
     return workspace_view(db, opp)

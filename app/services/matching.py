@@ -23,6 +23,9 @@ ENGINE_VERSION = "1.0"
 
 Operator = Literal["eq", "contains", "gte", "lte", "in"]
 Result = Literal["coincide", "incumple", "desconocido", "no_comparable"]
+# Etiquetas en español de cada resultado (las usan los borradores DOCX/CSV/XLSX; la interfaz tiene las mismas).
+RESULT_LABELS: dict[str, str] = {"coincide": "Coincide", "incumple": "Incumple", "desconocido": "Desconocido",
+                                 "no_comparable": "No comparable"}
 
 UNKNOWN_TEXT = "No declarado en el catálogo; no se infiere del nombre."
 _PRELIMINARY = "Correspondencia técnica preliminar; el cumplimiento documental sigue sujeto a evidencia."

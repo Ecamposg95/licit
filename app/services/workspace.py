@@ -32,6 +32,12 @@ PHASE_PREPARATION = "preparacion"
 PHASE_READY = "listo_revision_final"
 PHASE_DISCARDED = "descartada"
 DECISIONS = ("participar", "no_participar")
+# Origen de la creación del expediente (`workspace.create.after.origin`), en texto legible para la bitácora.
+ORIGIN_ASSESS = "evaluación de correspondencia"
+ORIGIN_DECISION = "decisión de participar"
+ORIGIN_APPROVAL = "aprobación"
+ORIGIN_READY = "compuerta de revisión final"
+ORIGIN_GENERATION = "generación de borrador"
 
 _APPROVAL_FIELDS = ("technical_approval_by_id", "technical_approval_at",
                     "commercial_approval_by_id", "commercial_approval_at")
@@ -41,19 +47,31 @@ def find_workspace(db: Session, opportunity_id: str) -> BidWorkspace | None:
     return db.scalars(select(BidWorkspace).where(BidWorkspace.opportunity_id == opportunity_id)).first()
 
 
-def get_or_create_workspace(db: Session, opportunity: Opportunity) -> BidWorkspace:
-    """El expediente de la oportunidad; se crea si no existe (sin duplicar ante dos solicitudes simultáneas)."""
+def get_or_create_workspace(db: Session, opportunity: Opportunity, actor_id: str | None = None,
+                            origin: str | None = None) -> BidWorkspace:
+    """El expediente de la oportunidad; se crea si no existe (sin duplicar ante dos solicitudes simultáneas).
+
+    Es la única forma de crearlo (expediente y generación de borradores): quien lo crea deja `workspace.create`
+    en la bitácora, con el origen (`origin`), en la misma transacción. Si otra solicitud lo creó primero, no se
+    audita de nuevo.
+    """
     ws = find_workspace(db, opportunity.id)
     if ws is not None:
         return ws
     insert = postgresql.insert if db.get_bind().dialect.name == "postgresql" else sqlite.insert
     now = utcnow()
-    db.execute(insert(BidWorkspace).values(
-        id=new_id(), organization_id=opportunity.organization_id, opportunity_id=opportunity.id,
+    ws_id = new_id()
+    created = db.execute(insert(BidWorkspace).values(
+        id=ws_id, organization_id=opportunity.organization_id, opportunity_id=opportunity.id,
         decision="pendiente", approvals_stale=False, phase=PHASE_ANALYSIS, version=1,
         created_at=now, updated_at=now,
-    ).on_conflict_do_nothing(index_elements=["opportunity_id"]))
-    return find_workspace(db, opportunity.id)
+    ).on_conflict_do_nothing(index_elements=["opportunity_id"])).rowcount == 1
+    ws = find_workspace(db, opportunity.id)
+    if created and ws is not None and ws.id == ws_id:
+        audit.record(db, organization_id=opportunity.organization_id, actor_id=actor_id, action="workspace.create",
+                     resource_type="bid_workspace", resource_id=ws.id,
+                     after={"opportunity_id": opportunity.id, "phase": ws.phase, "origin": origin})
+    return ws
 
 
 def on_requirement_change(db: Session, requirement, actor_id: str | None) -> dict | None:
@@ -169,7 +187,7 @@ def assess(db: Session, user, opportunity: Opportunity) -> Affinity:
     """
     _require(user, Perm.OPPORTUNITY_WRITE, Perm.REQUIREMENT_REVIEW)
     ensure_not_historical(opportunity)
-    ws = get_or_create_workspace(db, opportunity)
+    ws = get_or_create_workspace(db, opportunity, user.id, ORIGIN_ASSESS)
     lock_workspace(db, ws)
     reqs = _requirements(db, opportunity.id)
     rows = evaluate_requirements(db, opportunity, reqs)

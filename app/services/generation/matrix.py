@@ -1,6 +1,7 @@
 """Matriz de cumplimiento en filas planas: la comparten el DOCX, el CSV y el XLSX para que digan lo mismo."""
 from app.services.generation import formatting as fmt
 from app.services.generation.formatting import pending
+from app.services.matching import RESULT_LABELS
 
 COLUMNS = ["Código", "Partida", "Requisito", "Tipo", "Obligatorio", "Estado", "Motivo del estado",
            "Evidencia vinculada", "Evaluación técnica automática", "Siguiente acción", "Responsable",
@@ -21,7 +22,7 @@ def assessment_lines(assessments: list[dict]) -> list[str]:
         return ["Sin evaluación técnica"]
     lines = []
     for a in assessments:
-        line = f"{a['result']}: {a['explanation']}"
+        line = f"{fmt.label(RESULT_LABELS, a['result'])}: {a['explanation']}"
         if a["catalog_value"]:
             line += f" · Catálogo: {a['catalog_value']}"
         if a["source_text"]:

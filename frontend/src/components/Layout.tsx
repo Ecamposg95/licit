@@ -2,14 +2,18 @@ import type { ComponentType } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import {
   FolderOpen,
+  LayoutDashboard,
   ListChecks,
   LogOut,
   Package,
   Radar,
   ScrollText,
+  Server,
   Settings2,
+  ShieldCheck,
   type LucideProps,
 } from 'lucide-react'
+import AccountSwitcher from '@/components/AccountSwitcher'
 import Tooltip from '@/components/Tooltip'
 import { DataKindBadge } from '@/components/badges'
 import Footer from '@/components/brand/Footer'
@@ -24,17 +28,27 @@ interface NavItem {
   icon: ComponentType<LucideProps>
   /** Prefijos de ruta adicionales que marcan el elemento como activo. */
   alsoActive?: string[]
-  permission?: Permission
+  /** Basta con tener uno de estos permisos (el backend vuelve a comprobarlo en cada llamada). */
+  permission?: Permission | Permission[]
 }
 
 const NAV: NavItem[] = [
+  { to: '/panel', label: 'Panel', icon: LayoutDashboard, permission: 'opportunity.read' },
   { to: '/radar', label: 'Radar', icon: Radar, alsoActive: ['/oportunidades'] },
   { to: '/catalogo', label: 'Catálogo', icon: Package, permission: 'catalog.read' },
   { to: '/documentos', label: 'Centro documental', icon: FolderOpen, permission: 'document.read' },
   { to: '/pendientes', label: 'Mis pendientes', icon: ListChecks, permission: 'task.read' },
+  { to: '/gobierno', label: 'Gobierno', icon: ShieldCheck, permission: 'audit.read' },
   { to: '/bitacora', label: 'Bitácora', icon: ScrollText, permission: 'audit.read' },
+  { to: '/ti', label: 'TI', icon: Server, permission: ['source.manage', 'audit.read'] },
   { to: '/operacion', label: 'Operación', icon: Settings2 },
 ]
+
+function allowed(item: NavItem, permissions: readonly string[]): boolean {
+  if (!item.permission) return true
+  const anyOf = Array.isArray(item.permission) ? item.permission : [item.permission]
+  return anyOf.some((p) => permissions.includes(p))
+}
 
 function TopBar() {
   const { me, meta, logout } = useAuth()
@@ -67,13 +81,16 @@ function TopBar() {
               </span>
             </Tooltip>
           )}
-          <span className="hidden shrink-0 whitespace-nowrap rounded-full border border-white/25 px-2.5 py-0.5 text-xs text-dpm-navy-200 lg:inline-flex">
+          {/* Con el selector de cuenta, a 1024 px no cabe junto al nombre: solo aparece desde xl. */}
+          <span className="hidden shrink-0 whitespace-nowrap rounded-full border border-white/25 px-2.5 py-0.5 text-xs text-dpm-navy-200 xl:inline-flex">
             Zona: {meta?.display_timezone ?? getDisplayTimeZone()}
           </span>
         </div>
         <div className="flex min-w-0 items-center gap-3">
-          {/* G monta aquí el selector de cuenta durante la integración. */}
-          <div id="account-switcher-slot" className="flex shrink-0 items-center empty:hidden" />
+          {/* Selector de cuenta demo (frente G); no se dibuja fuera de DEMO_MODE. */}
+          <div id="account-switcher-slot" className="flex shrink-0 items-center empty:hidden">
+            <AccountSwitcher />
+          </div>
           {me && (
             <div className="hidden min-w-0 text-right leading-tight sm:block">
               <div className="truncate text-sm font-medium text-white">{me.full_name}</div>
@@ -106,7 +123,7 @@ function TopBar() {
 function Sidebar() {
   const permissions = useAuth((s) => s.me?.permissions ?? [])
   const { pathname } = useLocation()
-  const items = NAV.filter((n) => !n.permission || permissions.includes(n.permission))
+  const items = NAV.filter((n) => allowed(n, permissions))
 
   return (
     <nav

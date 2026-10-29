@@ -6,12 +6,10 @@ import hashlib
 import logging
 import uuid
 
-from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.models import BidWorkspace, GeneratedArtifact, Job, Opportunity
-from app.services import audit, jobs
+from app.models import GeneratedArtifact, Job, Opportunity
+from app.services import audit, jobs, workspace
 from app.services.generation.docx_templates import (
     TEMPLATE_FILES, TEMPLATE_VERSION, TEMPLATES, render_indice,
 )
@@ -48,24 +46,6 @@ def storage_key(organization_id: str, opportunity_id: str, artifact_id: str) -> 
     return f"artifacts/{organization_id}/{opportunity_id}/{artifact_id}.zip"
 
 
-def ensure_workspace(db: Session, opp: Opportunity, actor_id: str | None) -> BidWorkspace:
-    """El artefacto cuelga del espacio de trabajo del procedimiento; se crea vacío si aún no existe."""
-    ws = db.scalars(select(BidWorkspace).where(BidWorkspace.opportunity_id == opp.id)).first()
-    if ws is not None:
-        return ws
-    try:
-        with db.begin_nested():
-            ws = BidWorkspace(organization_id=opp.organization_id, opportunity_id=opp.id)
-            db.add(ws)
-            db.flush()
-    except IntegrityError:        # otro proceso lo creó entre la consulta y el INSERT
-        return db.scalars(select(BidWorkspace).where(BidWorkspace.opportunity_id == opp.id)).one()
-    audit.record(db, organization_id=opp.organization_id, actor_id=actor_id, action="workspace.create",
-                 resource_type="bid_workspace", resource_id=ws.id,
-                 after={"opportunity_id": opp.id, "origin": "generacion de borrador"})
-    return ws
-
-
 def _result(artifact: GeneratedArtifact) -> dict:
     return {"artifact_id": artifact.id, "data_version": artifact.data_version, "sha256": artifact.sha256,
             "size_bytes": artifact.size_bytes, "warnings": len(artifact.warnings or [])}
@@ -82,9 +62,11 @@ def generate_artifact(db: Session, job: Job) -> dict:
     if opp is None or opp.organization_id != job.organization_id:
         raise LookupError("Oportunidad no encontrada")
     keys = normalize_templates(payload.get("templates"))
+    workspace.ensure_not_historical(opp)      # una referencia histórica no se prepara como expediente
 
     jobs.set_progress(db, job, 5, "Preparando el espacio de trabajo")
-    ws = ensure_workspace(db, opp, job.created_by_id)
+    # El artefacto cuelga del expediente: se crea si falta, con la misma función (y auditoría) que usa E.
+    ws = workspace.get_or_create_workspace(db, opp, job.created_by_id, workspace.ORIGIN_GENERATION)
     jobs.set_progress(db, job, 15, "Congelando la instantánea de datos")     # commit: nada de la bitácora queda abierto
     snapshot = build_snapshot(db, opp)
     rendered: dict[str, bytes] = {}

@@ -552,3 +552,49 @@ def test_concurrent_approvals_by_same_user_cannot_both_succeed():
     for t in threads:
         t.join(20)
     assert sorted(results) == ["ok", "segregation"]
+
+
+# ── Integración 2: un solo get-or-create del expediente (E y F) ──────────────
+
+def test_workspace_created_once_with_one_audit_action(client):
+    """El expediente lo crea quien llegue primero (evaluar, decidir o generar), siempre con `workspace.create`."""
+    from app.services import jobs
+
+    analista = _h(client, "analista1")
+    opp = _opp(client, analista)
+    r = client.post(f"/api/v1/workspaces/{opp['id']}/generate", headers={**analista, "Idempotency-Key": "ws-once"})
+    assert r.status_code == 202, r.text
+    with SessionLocal() as db:
+        while jobs.run_pending_once(db) is not None:
+            pass
+    _assess(client, analista, opp["id"])
+    assert _decide(client, _h(client, "responsable"), opp["id"]).status_code == 200
+    created = _events("workspace.create")
+    assert len(created) == 1
+    assert created[0].after["origin"] == workspace.ORIGIN_GENERATION and created[0].actor_id is not None
+    db = SessionLocal()
+    rows = db.scalars(select(BidWorkspace).where(BidWorkspace.opportunity_id == opp["id"])).all()
+    assert len(rows) == 1 and created[0].resource_id == rows[0].id
+    db.close()
+
+
+def test_get_or_create_audits_only_when_it_creates(client):
+    db = SessionLocal()
+    opp = db.scalars(select(Opportunity).where(Opportunity.external_id == "DEMO-LIC-002")).one()
+    first = workspace.get_or_create_workspace(db, opp, None, workspace.ORIGIN_ASSESS)
+    again = workspace.get_or_create_workspace(db, opp, None, workspace.ORIGIN_DECISION)
+    db.commit()
+    assert first.id == again.id
+    events = [e for e in _events("workspace.create") if e.resource_id == first.id]
+    assert [e.after["origin"] for e in events] == [workspace.ORIGIN_ASSESS]
+    db.close()
+
+
+def test_generation_refuses_historical_like_the_workspace(client):
+    presentador = _h(client, "presentador")
+    hist = client.get("/api/v1/opportunities", params={"data_kind": "HISTORICAL"}, headers=presentador).json()["items"][0]
+    r = client.post(f"/api/v1/workspaces/{hist['id']}/generate", headers={**presentador, "Idempotency-Key": "h-1"})
+    assert r.status_code == 409 and r.json()["code"] == "historical_opportunity", r.text
+    db = SessionLocal()
+    assert db.scalar(select(BidWorkspace.id).where(BidWorkspace.opportunity_id == hist["id"])) is None
+    db.close()

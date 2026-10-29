@@ -20,7 +20,7 @@ from app.schemas.governance import (
     IntegrityResult, OpsStatus, PermissionLabel, PermissionMatrix, RolePermissions, RoleRef,
 )
 from app.schemas.v1 import OpportunityRow, UserRef
-from app.services import audit, dashboard
+from app.services import audit, dashboard, search_runs
 from app.services.demo_seed import DEMO_USERS, current_demo_run_id
 
 router = APIRouter(prefix="/api/v1", tags=["gobierno"])
@@ -31,10 +31,25 @@ APPROVAL_ACTIONS = (
 )
 _APPROVALS_LIMIT = 200
 
-_REASON_KEYS = ("reason", "decision_reason", "motivo", "status_reason")
-_OUTCOME_KEYS = ("decision", "status", "kind", "phase", "filename")
-_WORKSPACE_TYPES = {"bid_workspace", "workspace"}
-_ARTIFACT_TYPES = {"generated_artifact", "artifact"}
+# Llaves de `after` que escribe cada acción (E: `services/review.py` y `services/workspace.py`; F: `routers/artifacts.py`).
+# - requirement.review: {status, status_reason, reviewer_id, version, decision, evidence, workspace}
+# - workspace.decision: {decision, decision_by_id, decision_at, decision_reason, phase}
+# - workspace.approval: {technical_/commercial_approval_by_id/_at, approvals_stale, kind}  (sin motivo)
+# - workspace.ready:    {phase, version, technical_/commercial_approval_by_id, decision, engine_version, results}
+# - artifact.download:  {opportunity_id, filename, sha256, size_bytes, data_version}
+_REASON_KEYS = {
+    "requirement.review": ("status_reason",),
+    "workspace.decision": ("decision_reason",),
+}
+_OUTCOME_KEYS = {
+    "requirement.review": ("decision", "status"),
+    "workspace.decision": ("decision",),
+    "workspace.approval": ("kind",),
+    "workspace.ready": ("phase",),
+    "artifact.download": ("filename",),
+}
+_WORKSPACE_TYPES = {"bid_workspace"}
+_ARTIFACT_TYPES = {"generated_artifact"}
 
 
 # ── Integridad ───────────────────────────────────────────────────────────────
@@ -179,8 +194,8 @@ def approvals(demo_run_id: str | None = Query(None, description="Corrida demo; p
             actor=UserRef.model_validate(e.actor) if e.actor else None, roles=_roles(e.actor),
             resource_type=e.resource_type, resource_id=e.resource_id, target=targets.get(e.id),
             # Solo `after`: la decisión muestra su propio motivo, nunca el del estado anterior.
-            reason=_first_text(e.after, keys=_REASON_KEYS),
-            outcome=_first_text(e.after, keys=_OUTCOME_KEYS),
+            reason=_first_text(e.after, keys=_REASON_KEYS.get(e.action, ())),
+            outcome=_first_text(e.after, keys=_OUTCOME_KEYS.get(e.action, ())),
             before=e.before, after=e.after, demo_run_id=e.demo_run_id,
         )
         for e in events
@@ -245,7 +260,7 @@ def direction_dashboard(db: Session = Depends(get_db),
     return DirectionDashboard(
         by_data_kind=data["by_data_kind"],
         upcoming_real=[OpportunityRow(**_row(o, counts.get(o.id, 0), now)) for o in upcoming],
-        last_search=data["last_search"],
+        last_search=search_runs.serialize_run(db, data["last_search"]) if data["last_search"] else None,
         scenarios_at_risk=data["scenarios_at_risk"],
     )
 

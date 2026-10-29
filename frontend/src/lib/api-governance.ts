@@ -1,5 +1,6 @@
 import { http } from '@/lib/api'
 import type { DataKind, IsoDateTime, OpportunityRow, SourceOut, UserRef } from '@/lib/types'
+import type { SearchRun } from '@/lib/api-search'
 
 /** Contratos de gobierno, panel de dirección y estado operativo (app/schemas/governance.py). */
 
@@ -87,15 +88,6 @@ export interface KindSummary {
   por_estado: Record<string, number>
 }
 
-export interface SearchRunBrief {
-  id: string
-  status: string
-  started_at: IsoDateTime | null
-  finished_at: IsoDateTime | null
-  counts: Record<string, unknown>
-  errors: unknown[]
-}
-
 export interface ScenarioAtRisk {
   external_id: string
   opportunity_id: string
@@ -108,7 +100,8 @@ export interface DirectionDashboard {
   /** No existe un total combinado: cada tipo de dato se cuenta por separado. */
   by_data_kind: Partial<Record<DataKind, KindSummary>>
   upcoming_real: OpportunityRow[]
-  last_search: SearchRunBrief | null
+  /** Mismo contrato que `GET /search-runs/{id}` (frente C). */
+  last_search: SearchRun | null
   scenarios_at_risk: ScenarioAtRisk[]
 }
 

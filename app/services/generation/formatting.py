@@ -104,7 +104,8 @@ VERIFICATION_LABEL = {"por_verificar": "Por verificar", "verificada": "Verificad
                       "fuente_inaccesible": "Fuente inaccesible", "simulada": "Simulada"}
 ATTRIBUTE_LABEL = {"material": "Material", "holes": "Orificios", "diameter_mm": "Diámetro", "length_mm": "Longitud",
                    "size_demo": "Talla (demostración)", "side": "Lado", "stock_demo": "Existencias (demostración)"}
-OPERATOR_LABEL = {"eq": "igual a", "gte": "mínimo", "lte": "máximo", "gt": "mayor que", "lt": "menor que"}
+OPERATOR_LABEL = {"eq": "igual a", "gte": "mínimo", "lte": "máximo", "gt": "mayor que", "lt": "menor que",
+                  "contains": "contiene", "in": "uno de"}
 
 
 def label(mapping: dict, code: str | None, fallback: str | None = None) -> str:

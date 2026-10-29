@@ -27,6 +27,7 @@ from app.services.generation.matrix import (
     assessment_lines, evidence_lines, mandatory_text, next_action, requirement_text,
 )
 from app.services.generation.ziputil import normalize_zip, zip_date
+from app.services.matching import RESULT_LABELS
 
 TEMPLATE_VERSION = "1.0"
 HEADER_TEXT = "Dipromedic · Borrador de expediente · DEMO"
@@ -520,7 +521,8 @@ def render_propuesta_tecnica(snapshot: dict) -> bytes:
         else:
             _para(doc, pending("especificaciones exigidas por las bases"))
         for line in (a for a in lot["assessments"]):
-            _bullet(doc, f"Evaluación de la partida: {line['result']}: {line['explanation']}")
+            _bullet(doc, f"Evaluación de la partida: {fmt.label(RESULT_LABELS, line['result'])}: "
+                         f"{line['explanation']}")
         open_tech = [r for r in _open(snapshot) if r["lot"] == lot["number"] and r["req_type"] == "tecnico"]
         if open_tech:
             codes = ", ".join(r["code"] or "s/c" for r in open_tech)

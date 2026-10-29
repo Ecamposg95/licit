@@ -301,7 +301,8 @@ export default function WorkspacePanel({ opportunityId, view, onChanged, onOpenR
             </>
           )}
           <p className="mt-2 text-[11px] text-slate-500">
-            La compuerta de revisión final además exige validar los pendientes y registrar la decisión y ambas aprobaciones.
+            La compuerta además exige validar los pendientes y revisa decisión, aprobaciones, vigencia de evidencia y
+            conflictos con el motor (también en requisitos de obligatoriedad no determinable).
           </p>
         </div>
 

@@ -4,12 +4,9 @@ import PageHeader from '@/components/PageHeader'
 import { Badge, DataKindBadge, DerivedBadge } from '@/components/badges'
 import { DateTimeText, SubmissionDate } from '@/components/dates'
 import { EmptyState, ErrorPanel, LoadingBlock, TableSkeleton } from '@/components/feedback'
-import {
-  getDirectionDashboard,
-  type DirectionDashboard,
-  type KindSummary,
-  type SearchRunBrief,
-} from '@/lib/api-governance'
+import { getDirectionDashboard, type DirectionDashboard, type KindSummary } from '@/lib/api-governance'
+import { errorCodeLabel, type SearchCounts, type SearchRun } from '@/lib/api-search'
+import { formatDate } from '@/lib/format'
 import { DATA_KIND_HINT, humanize } from '@/lib/labels'
 import { useApi } from '@/lib/useApi'
 import type { DataKind } from '@/lib/types'
@@ -160,20 +157,15 @@ const SEARCH_STATUS: Record<string, string> = {
   failed: 'Fallida',
 }
 
-function describe(value: unknown): string {
-  if (value === null || value === undefined) return '—'
-  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return String(value)
-  if (typeof value === 'object') {
-    const o = value as Record<string, unknown>
-    const text = ['message', 'error', 'detail'].map((k) => o[k]).find((v) => typeof v === 'string')
-    const where = ['term', 'source', 'key'].map((k) => o[k]).find((v) => typeof v === 'string')
-    if (text) return where ? `${where}: ${text}` : String(text)
-    return JSON.stringify(value)
-  }
-  return String(value)
+const COUNT_LABEL: Record<keyof SearchCounts, string> = {
+  notes: 'Notas leídas',
+  procedures: 'Procedimientos',
+  new: 'Nuevos',
+  updated: 'Actualizados',
+  unchanged: 'Sin cambios',
 }
 
-function LastSearch({ run }: { run: SearchRunBrief | null }) {
+function LastSearch({ run }: { run: SearchRun | null }) {
   const problem = run && (run.status === 'failed' || run.status === 'partial' || run.errors.length > 0)
   return (
     <section aria-labelledby="ultima-busqueda" className="card">
@@ -204,13 +196,16 @@ function LastSearch({ run }: { run: SearchRunBrief | null }) {
                 <DateTimeText value={run.finished_at} empty="Sin terminar" />
               </dd>
             </div>
-            {Object.entries(run.counts).map(([k, v]) => (
+            {(Object.keys(COUNT_LABEL) as (keyof SearchCounts)[]).map((k) => (
               <div key={k}>
-                <dt className="text-xs text-slate-500">{humanize(k)}</dt>
-                <dd className="mt-0.5 font-semibold tabular-nums text-slate-900">{describe(v)}</dd>
+                <dt className="text-xs text-slate-500">{COUNT_LABEL[k]}</dt>
+                <dd className="mt-0.5 font-semibold tabular-nums text-slate-900">{run.counts[k]}</dd>
               </div>
             ))}
           </dl>
+          <p className="text-xs text-slate-600">
+            Términos: {run.query.terms.join(', ')} · del {formatDate(run.query.date_from)} al {formatDate(run.query.date_to)}
+          </p>
           {run.errors.length > 0 && (
             <div role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-red-900">
               <p className="flex items-center gap-1.5 font-medium">
@@ -219,7 +214,10 @@ function LastSearch({ run }: { run: SearchRunBrief | null }) {
               </p>
               <ul className="mt-1 list-disc pl-5 text-xs">
                 {run.errors.map((e, i) => (
-                  <li key={i}>{describe(e)}</li>
+                  <li key={i}>
+                    {e.term ? `«${e.term}» · ` : ''}
+                    {errorCodeLabel(e.code)}: {e.message}
+                  </li>
                 ))}
               </ul>
             </div>

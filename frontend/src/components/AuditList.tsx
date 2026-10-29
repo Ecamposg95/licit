@@ -18,17 +18,20 @@ export default function AuditList({ events, userNames }: { events: AuditOut[]; u
           <div className="min-w-0">
             <p className="text-sm">
               <span className="font-medium text-slate-900">{auditActionLabel(e.action)}</span>
-              <span className="text-slate-500">
-                {' '}
-                en {resourceTypeLabel(e.resource_type).toLowerCase()}
-              </span>
+              {/* «Aprobación del expediente» ya dice dónde: no se repite «en expediente». */}
+              {!auditActionLabel(e.action).toLowerCase().includes(resourceTypeLabel(e.resource_type).toLowerCase()) && (
+                <span className="text-slate-500">
+                  {' '}
+                  en {resourceTypeLabel(e.resource_type).toLowerCase()}
+                </span>
+              )}
               {e.action !== auditActionLabel(e.action) && (
                 <code className="ml-2 rounded bg-slate-100 px-1 text-[11px] text-slate-600">{e.action}</code>
               )}
             </p>
             {(e.before || e.after) && (
               <div className="mt-2 max-w-2xl rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
-                <AuditDiff before={e.before} after={e.after} userNames={userNames} />
+                <AuditDiff before={e.before} after={e.after} userNames={userNames} action={e.action} />
               </div>
             )}
             <p className="mt-1.5 text-[11px] text-slate-500 tabular-nums">

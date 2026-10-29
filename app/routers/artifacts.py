@@ -19,7 +19,7 @@ from app.schemas.artifacts import (
     ArtifactOut, GenerateIn, GenerateOut, GenerationPreview, OpenRequirement, TemplateInfo,
 )
 from app.schemas.v1 import UserRef
-from app.services import audit, jobs
+from app.services import audit, jobs, workspace
 from app.services.generation import JOB_KIND, normalize_templates
 from app.services.generation.docx_templates import TEMPLATE_FILES
 from app.services.generation.snapshot import build_snapshot
@@ -79,6 +79,7 @@ def generate(opportunity_id: str, payload: GenerateIn | None = None,
              user: User = Depends(require_permission(Perm.PROPOSAL_GENERATE))):
     """Encola la generación del borrador. La misma `Idempotency-Key` devuelve el mismo trabajo (doble clic)."""
     opp = get_owned(db, Opportunity, opportunity_id, user, "Oportunidad")
+    workspace.ensure_not_historical(opp)      # 409 historical_opportunity, igual que el expediente
     try:
         templates = normalize_templates(payload.templates if payload else None)
     except ValueError as exc:

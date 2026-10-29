@@ -126,6 +126,7 @@ const RESOURCE_TYPE: Record<string, string> = {
   source: 'Fuente',
   search_run: 'Búsqueda en vivo',
   bid_workspace: 'Expediente',
+  generated_artifact: 'Borrador del expediente',
 }
 export const resourceTypeLabel = (c: string | null | undefined) => lookup(RESOURCE_TYPE, c)
 
@@ -152,6 +153,10 @@ const AUDIT_ACTION: Record<string, string> = {
   'workspace.approval': 'Aprobación del expediente',
   'workspace.approvals_invalidated': 'Aprobaciones sin efecto por un cambio',
   'workspace.ready': 'Listo para revisión final',
+  'workspace.create': 'Expediente abierto',
+  'artifact.generate': 'Borrador del expediente generado',
+  'artifact.download': 'Borrador del expediente descargado',
+  'audit.verify': 'Integridad de la bitácora verificada',
 }
 export const auditActionLabel = (c: string) => AUDIT_ACTION[c] ?? c
 
@@ -233,8 +238,65 @@ const FIELD: Record<string, string> = {
   technical_approval_by_id: 'Aprobación técnica',
   commercial_approval_by_id: 'Aprobación comercial',
   decision_reason: 'Motivo de la decisión',
+  decision_by_id: 'Decidió',
+  decision_at: 'Fecha de la decisión',
+  technical_approval_at: 'Fecha de la aprobación técnica',
+  commercial_approval_at: 'Fecha de la aprobación comercial',
+  approvals_cleared: 'Aprobaciones anuladas',
+  requirement_id: 'Requisito',
+  assignee: 'Responsable',
+  workspace_id: 'Expediente',
+  // Evaluación del motor y compuerta
+  affinity: 'Afinidad',
+  results: 'Resultados del motor',
+  assessments: 'Requisitos evaluados',
+  assessed: 'Ya evaluado',
+  engine_version: 'Versión del motor',
+  total: 'Afinidad total',
+  blocking: 'Bloqueantes',
+  origin: 'Origen',
+  // Borradores del expediente
+  templates: 'Plantillas',
+  data_version: 'Versión de datos',
+  template_version: 'Versión de plantillas',
+  files: 'Archivos en el paquete',
+  // Verificación de la bitácora
+  ok: 'Cadena correcta',
+  checked: 'Eventos verificados',
+  first_broken_id: 'Primer evento alterado',
+  last_hash: 'Último hash verificado',
 }
 export const fieldLabel = (c: string) => FIELD[c] ?? c
+
+/** Resultado del motor determinista de correspondencia (`services/matching.py`). */
+export const MATCH_RESULT_LABEL: Record<string, string> = {
+  coincide: 'Coincide',
+  incumple: 'Incumple',
+  desconocido: 'Desconocido',
+  no_comparable: 'No comparable',
+}
+export const matchResultText = (c: string | null | undefined) => lookup(MATCH_RESULT_LABEL, c)
+
+/** Fases del expediente (`services/workspace.py`). */
+export const PHASE_LABEL: Record<string, string> = {
+  analisis: 'Análisis',
+  preparacion: 'Preparación del expediente',
+  listo_revision_final: 'Listo para revisión final',
+  descartada: 'Descartada (no participar)',
+}
+export const phaseLabel = (c: string | null | undefined) => lookup(PHASE_LABEL, c)
+
+/** Decisión de participar del responsable comercial. */
+export const DECISION_LABEL: Record<string, string> = {
+  pendiente: 'Sin decisión',
+  participar: 'Participar',
+  no_participar: 'No participar',
+}
+export const decisionLabel = (c: string | null | undefined) => lookup(DECISION_LABEL, c)
+
+/** Tipo de aprobación del expediente. */
+export const APPROVAL_KIND_LABEL: Record<string, string> = { tecnica: 'Técnica', comercial: 'Comercial' }
+export const approvalKindLabel = (c: string | null | undefined) => lookup(APPROVAL_KIND_LABEL, c)
 
 /** Atributos técnicos comparables: etiqueta y unidad canónica cuando el dato no la trae. */
 const ATTRIBUTE: Record<string, { label: string; unit?: string }> = {

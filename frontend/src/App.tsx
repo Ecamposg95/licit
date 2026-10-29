@@ -14,7 +14,6 @@ import Operations from '@/pages/Operations'
 import Panel from '@/pages/Panel'
 import Gobierno from '@/pages/Gobierno'
 import TI from '@/pages/TI'
-import { AccountSwitcherSlot } from '@/components/AccountSwitcher'
 
 export default function App() {
   return (
@@ -24,8 +23,6 @@ export default function App() {
         element={
           <SessionGate>
             <Layout />
-            {/* Provisional (frente G): el integrador puede mover esta línea a Layout.tsx. */}
-            <AccountSwitcherSlot />
           </SessionGate>
         }
       >

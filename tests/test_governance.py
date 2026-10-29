@@ -162,7 +162,7 @@ APPROVAL_ACTIONS = ["requirement.review", "workspace.decision", "workspace.appro
 def test_approvals_lists_only_approval_events_of_current_run(client, direccion):
     db = SessionLocal()
     old_run = _record(db, "workspace.decision", email="responsable@dipromedic.example",
-                      resource_type="bid_workspace", after={"decision": "participar", "reason": "Ensayo"}).demo_run_id
+                      resource_type="bid_workspace", after={"decision": "participar", "decision_reason": "Ensayo"}).demo_run_id
     # Un reinicio del demo abre una corrida nueva: los eventos del ensayo salen de la lista por omisión.
     db.add(DemoRun(organization_id=_org_id(db), started_at=utcnow() + timedelta(seconds=1)))
     db.commit()
@@ -195,7 +195,8 @@ def test_approvals_resolve_target_and_reason(client, direccion):
     db = SessionLocal()
     req = db.scalars(select(Requirement).where(Requirement.code == "DEMO-REQ-005")).one()
     _record(db, "requirement.review", resource_type="requirement", resource_id=req.id,
-            before={"status": "en_revision"}, after={"status": "cumple_validado", "reason": "Certificado vigente"})
+            before={"status": "en_revision"},
+            after={"status": "cumple_validado", "status_reason": "Certificado vigente", "decision": "cumple_validado"})
     db.close()
 
     items = client.get("/api/v1/governance/approvals", headers=direccion).json()
@@ -213,15 +214,67 @@ def test_approvals_reason_comes_only_from_after(client, direccion):
     db = SessionLocal()
     req = db.scalars(select(Requirement).where(Requirement.code == "DEMO-REQ-005")).one()
     _record(db, "requirement.review", resource_type="requirement", resource_id=req.id,
-            before={"status": "en_revision", "reason": "Motivo del estado anterior"},
-            after={"status": "incumple"})
+            before={"status": "en_revision", "status_reason": "Motivo del estado anterior"},
+            after={"status": "incumple", "decision": "incumple"})
     db.close()
 
     item = client.get("/api/v1/governance/approvals", headers=direccion).json()[0]
 
     assert item["outcome"] == "incumple"
     assert item["reason"] is None             # una decisión nunca muestra el motivo del estado previo
-    assert item["before"]["reason"] == "Motivo del estado anterior"
+    assert item["before"]["status_reason"] == "Motivo del estado anterior"
+
+
+def test_approvals_from_the_real_workspace_flow(client, direccion):
+    """Integración 2: con los servicios reales de E (y la descarga de F), cada evento trae objetivo y resultado, y la
+    revisión y la decisión traen su motivo. La aprobación, la compuerta y la descarga no piden motivo: se muestran
+    sin él en lugar de inventarlo."""
+    from app.services import jobs
+    from tests.test_workspace import _scenario_ready_to_validate, _validate_all
+
+    opp_id, req_ids = _scenario_ready_to_validate()
+    revisor, responsable = login(client, "revisor@dipromedic.example"), login(client, "responsable@dipromedic.example")
+    analista = login(client, "analista1@dipromedic.example")
+    _validate_all(client, opp_id, req_ids)
+    assert client.post(f"/api/v1/workspaces/{opp_id}/decision", headers=responsable,
+                       json={"decision": "participar", "reason": "Plazos y cartera viables"}).status_code == 200
+    assert client.post(f"/api/v1/workspaces/{opp_id}/approvals", headers=revisor,
+                       json={"kind": "tecnica"}).status_code == 200
+    assert client.post(f"/api/v1/workspaces/{opp_id}/approvals", headers=responsable,
+                       json={"kind": "comercial"}).status_code == 200
+    r = client.post(f"/api/v1/workspaces/{opp_id}/ready", headers=responsable)
+    assert r.status_code == 200, r.text
+    r = client.post(f"/api/v1/workspaces/{opp_id}/generate", headers={**analista, "Idempotency-Key": "gov-flow"})
+    assert r.status_code == 202, r.text
+    with SessionLocal() as db:
+        while jobs.run_pending_once(db) is not None:
+            pass
+    [artifact] = client.get(f"/api/v1/workspaces/{opp_id}/artifacts", headers=direccion).json()
+    assert client.get(f"/api/v1/artifacts/{artifact['id']}/download", headers=direccion).status_code == 200
+
+    items = client.get("/api/v1/governance/approvals", headers=direccion).json()
+
+    by_action: dict[str, list[dict]] = {}
+    for item in items:
+        by_action.setdefault(item["action"], []).append(item)
+    assert set(by_action) == set(APPROVAL_ACTIONS)
+    for item in items:
+        assert item["target"] and item["target"]["opportunity_id"] == opp_id, item
+        assert item["target"]["opportunity_external_id"] == "DEMO-TEST-READY"
+        assert item["outcome"], item
+    reviews = by_action["requirement.review"]
+    assert len(reviews) == 2
+    assert {i["target"]["requirement_code"] for i in reviews} == {"TEST-REQ-1", "TEST-REQ-2"}
+    assert all(i["reason"] == "Revisado" and i["outcome"] == "cumple_validado" for i in reviews)
+    [decision] = by_action["workspace.decision"]
+    assert decision["reason"] == "Plazos y cartera viables" and decision["outcome"] == "participar"
+    assert sorted(i["outcome"] for i in by_action["workspace.approval"]) == ["comercial", "tecnica"]
+    [ready] = by_action["workspace.ready"]
+    assert ready["outcome"] == "listo_revision_final"
+    [download] = by_action["artifact.download"]
+    assert download["outcome"] == artifact["filename"]
+    assert all(i["reason"] is None for a in ("workspace.approval", "workspace.ready", "artifact.download")
+               for i in by_action[a])
 
 
 def test_approvals_without_events_is_empty_list(client, direccion):
@@ -446,28 +499,36 @@ def test_scenarios_at_risk_are_synthetic_with_blockers(client, direccion):
     assert "DEMO-LIC-007" not in by_id                            # solo pendientes: aún no es un bloqueo
 
 
-def test_last_search_minimal_fields(client, direccion):
+def test_last_search_uses_the_search_run_contract(client, direccion):
+    """El panel muestra la última corrida con el mismo contrato que la API de búsqueda (`serialize_run` de C)."""
     from app.models import SearchRun
+    from app.services.search_runs import serialize_run
 
     db = SessionLocal()
     org_id = _org_id(db)
     now = utcnow()
-    db.add(SearchRun(organization_id=org_id, query={"terms": ["placa"]}, status="done",
+    query = {"terms": ["placa"], "date_from": "2026-01-01", "date_to": "2026-10-29"}
+    db.add(SearchRun(organization_id=org_id, query=query, status="done",
                      started_at=now - timedelta(minutes=9), finished_at=now - timedelta(minutes=8),
-                     counts={"found": 3}, errors=[], created_at=now - timedelta(minutes=10)))
-    newest = SearchRun(organization_id=org_id, query={"terms": ["clavo"]}, status="partial",
+                     counts={"notes": 3, "procedures": 2, "new": 2}, errors=[], created_at=now - timedelta(minutes=10)))
+    newest = SearchRun(organization_id=org_id, query={**query, "terms": ["clavo", "tornillo"]}, status="partial",
                        started_at=now - timedelta(minutes=2), finished_at=now - timedelta(minutes=1),
-                       counts={"found": 1}, errors=[{"term": "tornillo", "error": "timeout"}], created_at=now)
+                       counts={"notes": 1, "procedures": 1, "unchanged": 1},
+                       errors=[{"source": "dof_sidof", "term": "tornillo", "code": "source_unavailable",
+                                "message": "Tiempo de espera agotado"}], created_at=now)
     db.add(newest)
     db.commit()
     newest_id = newest.id
+    expected = serialize_run(db, newest).model_dump(mode="json")
     db.close()
 
     run = client.get("/api/v1/dashboard/direccion", headers=direccion).json()["last_search"]
 
-    assert set(run) == {"id", "status", "started_at", "finished_at", "counts", "errors"}
+    assert run == expected
     assert run["id"] == newest_id and run["status"] == "partial"
-    assert run["counts"] == {"found": 1} and run["errors"] == [{"term": "tornillo", "error": "timeout"}]
+    assert run["counts"] == {"notes": 1, "procedures": 1, "new": 0, "updated": 0, "unchanged": 1}
+    assert run["query"]["terms"] == ["clavo", "tornillo"]
+    assert run["errors"][0]["code"] == "source_unavailable" and run["errors"][0]["term"] == "tornillo"
 
 
 def test_dashboard_requires_login_and_read_permission(client):

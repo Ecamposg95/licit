@@ -167,7 +167,17 @@ export default function OpportunityDetail() {
         {tab === 'documentos' &&
           (canDocs ? <DocumentsTab opportunityId={o.id} /> : <Forbidden permission="document.read" />)}
         {tab === 'actividades' && (canTasks ? <TasksTab opportunityId={o.id} /> : <Forbidden permission="task.read" />)}
-        {tab === 'expediente' && <ExpedienteTab opportunityId={o.id} />}
+        {tab === 'expediente' &&
+          (o.data_kind === 'HISTORICAL' ? (
+            <div className="card">
+              <EmptyState title="Las referencias históricas no se preparan como expediente">
+                Este procedimiento ya pasó; sirve como referencia de precios, compradores y requisitos, no para generar
+                borradores.
+              </EmptyState>
+            </div>
+          ) : (
+            <ExpedienteTab opportunityId={o.id} />
+          ))}
         {tab === 'historial' && <HistoryTab opportunityId={o.id} version={o.version} />}
       </Tabs>
     </div>

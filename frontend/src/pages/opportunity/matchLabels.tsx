@@ -2,30 +2,30 @@
 import { CircleCheck, CircleHelp, CircleSlash, CircleX } from 'lucide-react'
 import { Badge } from '@/components/badges'
 import Tooltip from '@/components/Tooltip'
-import { attributeLabel } from '@/lib/labels'
+import { MATCH_RESULT_LABEL, attributeLabel } from '@/lib/labels'
 import type { Validity } from '@/lib/api-workspace'
 
 const RESULT: Record<string, { label: string; icon: typeof CircleCheck; className: string; hint: string }> = {
   coincide: {
-    label: 'Coincide',
+    label: MATCH_RESULT_LABEL.coincide,
     icon: CircleCheck,
     className: 'border-emerald-300 bg-emerald-50 text-emerald-800',
     hint: 'Correspondencia técnica preliminar con lo que declara el catálogo. El cumplimiento sigue sujeto a evidencia y revisión.',
   },
   incumple: {
-    label: 'Incumple',
+    label: MATCH_RESULT_LABEL.incumple,
     icon: CircleX,
     className: 'border-red-400 bg-red-50 text-red-800',
     hint: 'Lo que declara el catálogo no cumple lo exigido. No se asume equivalencia ni tolerancia no documentada.',
   },
   desconocido: {
-    label: 'Desconocido',
+    label: MATCH_RESULT_LABEL.desconocido,
     icon: CircleHelp,
     className: 'border-violet-300 bg-violet-50 text-violet-800',
     hint: 'El catálogo no declara el dato. No se infiere del nombre comercial.',
   },
   no_comparable: {
-    label: 'No comparable',
+    label: MATCH_RESULT_LABEL.no_comparable,
     icon: CircleSlash,
     className: 'border-slate-300 bg-slate-50 text-slate-700',
     hint: 'Las unidades o el tipo de dato no permiten comparar sin interpretar.',
@@ -73,18 +73,8 @@ export function ValidityText({ validity }: { validity: Validity | string }) {
   return <span className={v.className}>{v.label}</span>
 }
 
-export const DECISION_LABEL: Record<string, string> = {
-  pendiente: 'Sin decisión',
-  participar: 'Participar',
-  no_participar: 'No participar',
-}
-
-export const PHASE_LABEL: Record<string, string> = {
-  analisis: 'Análisis',
-  preparacion: 'Preparación del expediente',
-  listo_revision_final: 'Listo para revisión final',
-  descartada: 'Descartada (no participar)',
-}
+// Decisión y fase viven en `@/lib/labels` (compartidas con Gobierno, el historial y la bitácora).
+export { DECISION_LABEL, PHASE_LABEL } from '@/lib/labels'
 
 export const AFFINITY_LABEL: Record<string, string> = {
   familia: 'Familia',
