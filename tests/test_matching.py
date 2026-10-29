@@ -3,7 +3,7 @@ from datetime import date, timedelta
 from types import SimpleNamespace
 
 from app.services.affinity import (
-    WEIGHTS, check_validity, compute_affinity, serialize_affinity,
+    WEIGHTS, blocking_details, check_validity, compute_affinity, serialize_affinity,
 )
 from app.services.matching import ENGINE_VERSION, RequirementSpec, evaluate, variant_attributes
 
@@ -186,6 +186,41 @@ def test_objective_mismatch_blocks_even_when_status_is_pending():
     opp, reqs, asses = _full_scenario()
     asses = [_ass("R1", "incumple"), _ass("R2", "coincide"), _ass("R4", "coincide")]
     assert compute_affinity(opp, reqs, asses).blocking == ["R1"]
+
+
+def test_component_without_known_data_has_no_score():
+    """M1: total > 0 pero nada conocido → sin puntuación y total «cobertura incompleta», nunca un 0 % aparente."""
+    opp, reqs, asses = _full_scenario()
+    asses = [_ass("R1", "desconocido"), _ass("R2", "desconocido"), _ass("R4", "coincide")]
+    a = compute_affinity(opp, reqs, asses)
+    assert a.components["atributos"] == {"weight": 30, "score": None, "known": 0, "total": 2}
+    assert a.total is None and a.coverage_complete is False
+
+
+def test_human_negative_status_wins_over_engine_match():
+    """M2: si una persona marcó el requisito incumple/faltante/vencido, la coincidencia del motor no suma."""
+    opp, reqs, asses = _full_scenario()
+    reqs[0].status = "incumple"
+    reqs[3].status = "faltante"
+    a = compute_affinity(opp, reqs, asses)
+    assert a.components["atributos"] == {"weight": 30, "score": 0.5, "known": 2, "total": 2}
+    assert a.components["capacidad"] == {"weight": 10, "score": 0.0, "known": 1, "total": 1}
+    assert a.blocking == ["R1", "R4"]
+
+
+def test_blocking_details_reasons():
+    reqs = [_req("R1", "tecnico", attribute="holes"), _req("R2", "documental", status="faltante"),
+            _req("R3", "documental", status="pendiente", mandatory=None),
+            _req("R4", "tecnico", status="no_aplica_justificado", attribute="holes"),
+            _req("R5", "documental", status="faltante", mandatory=False)]
+    asses = [_ass("R1", "incumple"), _ass("R4", "incumple")]
+    assert blocking_details(reqs, asses) == [
+        {"code": "R1", "reason": "motor", "status": "pendiente"},
+        {"code": "R2", "reason": "estado", "status": "faltante"},
+        {"code": "R3", "reason": "no_determinable", "status": "pendiente"},
+    ]
+    # La lista de bloqueantes de la afinidad (la que lee F) solo trae obligatorios y omite «no aplica».
+    assert compute_affinity(_opportunity(), reqs, asses).blocking == ["R1", "R2"]
 
 
 def test_family_component_counts_lots_without_product():

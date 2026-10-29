@@ -110,6 +110,7 @@ def workspace_view(db: Session, opportunity: Opportunity) -> WorkspaceView:
     assessments.sort(key=lambda x: (x.lot_number or "", x.requirement_code or ""))
     return WorkspaceView(
         workspace=out, affinity=ws.affinity if ws else None, assessments=assessments,
+        blockers=workspace.requirement_blockers(db, opportunity.id),
         lots=[LotPrice(lot_id=l.id, number=l.number, unit_price=l.unit_price, currency=l.currency,
                        price_data_kind=l.price_data_kind,
                        product_id=l.proposed_variant.product_id if l.proposed_variant else None,

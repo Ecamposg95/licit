@@ -44,17 +44,46 @@ def check_validity(valid_until: date | None, required_by: date | None, today: da
 
 
 def _component(name: str, positive: int, known: int, total: int) -> dict:
-    score = None if total == 0 else round(positive / total, 4)
+    # Sin ningún dato conocido no hay puntuación (ni con total > 0): un 0 % parecería un dato.
+    score = None if total == 0 or known == 0 else round(positive / total, 4)
     return {"weight": WEIGHTS[name], "score": score, "known": known, "total": total}
 
 
 def _requirement_outcome(requirement, assessment) -> tuple[bool, bool]:
-    """(se sabe, es positivo). El resultado objetivo del motor va antes que el estado capturado."""
+    """(se sabe, es positivo).
+
+    Una decisión humana negativa (incumple, faltante, vencido) manda sobre una coincidencia del motor; si no, el
+    resultado objetivo del motor va antes que el estado capturado.
+    """
+    status = requirement.status
+    if status in BLOCKING_STATUSES:
+        return True, False
     result = getattr(assessment, "result", None)
     if result in ("coincide", "incumple"):
         return True, result == "coincide"
-    status = requirement.status
     return status in _DETERMINATE, status == "cumple_validado"
+
+
+def blocking_details(requirements, assessments) -> list[dict]:
+    """Requisitos que bloquean, con el motivo: `estado` (obligatorio en incumple, faltante o vencido), `motor` (el
+    motor indica incumplimiento aunque el estado capturado no lo diga) o `no_determinable` (las bases no permiten
+    saber si es obligatorio). Los «no aplica justificado» no bloquean."""
+    by_requirement = {a.requirement_id: a for a in assessments if getattr(a, "requirement_id", None)}
+    out = []
+    for r in sorted(requirements, key=lambda x: x.code or x.id):
+        if r.status == _NOT_APPLICABLE or r.mandatory is False:
+            continue
+        engine = getattr(by_requirement.get(r.id), "result", None)
+        if r.mandatory is True and r.status in BLOCKING_STATUSES:
+            reason = "estado"
+        elif r.mandatory is True and engine == "incumple":
+            reason = "motor"
+        elif r.mandatory is None and r.status != "cumple_validado":
+            reason = "no_determinable"
+        else:
+            continue
+        out.append({"code": r.code or r.id, "reason": reason, "status": r.status})
+    return out
 
 
 def compute_affinity(opportunity, requirements, assessments) -> Affinity:
@@ -105,10 +134,7 @@ def compute_affinity(opportunity, requirements, assessments) -> Affinity:
         total = int((Decimal(exact.numerator) / Decimal(exact.denominator)).quantize(Decimal(1), ROUND_HALF_UP))
     coverage_complete = all(c["total"] > 0 and c["known"] == c["total"] for c in components.values())
 
-    blocking = sorted(
-        r.code for r in requirements
-        if r.mandatory is True and r.code and (
-            r.status in BLOCKING_STATUSES or getattr(by_requirement.get(r.id), "result", None) == "incumple"))
+    blocking = [b["code"] for b in blocking_details(requirements, assessments) if b["reason"] != "no_determinable"]
     return Affinity(components=components, total=total, coverage_complete=coverage_complete, blocking=blocking)
 
 

@@ -102,6 +102,7 @@ def test_self_approval_blocked_even_for_presentador(client):
     row, _doc = _uploaded_and_linked(client, "presentador")
     r = _review(client, _headers(client, "presentador"), row)
     assert r.status_code == 403 and r.json()["code"] == "self_approval"
+    assert r.json()["message"] == "No puedes aprobar evidencia que tú cargaste. Cambia a la cuenta del revisor"
     after = _req(client, _headers(client, "presentador"), "DEMO-REQ-005")
     assert after["status"] == "en_revision" and after["version"] == row["version"]
     # Tampoco puede cerrarlo como «no aplica».

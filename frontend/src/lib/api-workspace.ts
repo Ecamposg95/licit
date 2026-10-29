@@ -123,11 +123,20 @@ export interface LotPrice {
   product_review_status: string | null
 }
 
+/** Requisito que bloquea hoy: por su estado, según el motor (aunque el estado capturado no lo diga) o porque las
+ * bases no permiten saber si es obligatorio. */
+export interface RequirementBlocker {
+  code: string
+  reason: 'estado' | 'motor' | 'no_determinable' | string
+  status: string
+}
+
 export interface WorkspaceView {
   workspace: WorkspaceOut
   affinity: Affinity | null
   assessments: AssessmentOut[]
   lots: LotPrice[]
+  blockers: RequirementBlocker[]
 }
 
 export interface ReadinessItem {
@@ -212,7 +221,14 @@ const ERROR_TEXT: Record<string, string> = {
   not_ready: 'El expediente aún no puede pasar a revisión final. Atiende los bloqueantes.',
 }
 
+/** Códigos cuyo texto lo da el servidor (lleva el nombre de quien aprobó o depende de la acción). */
+const SERVER_TEXT = new Set(['already_approved', 'historical_opportunity'])
+
 export function workspaceErrorText(error: ApiError): string {
+  // La autoaprobación de evidencia y la de la aprobación técnica tienen textos acordados distintos; ambos vienen
+  // del servidor, con el de la evidencia como respaldo.
+  if (error.code === 'self_approval') return error.message || SELF_APPROVAL_TEXT
+  if (SERVER_TEXT.has(error.code)) return error.message
   return ERROR_TEXT[error.code] ?? error.message
 }
 

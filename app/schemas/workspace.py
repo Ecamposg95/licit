@@ -112,9 +112,18 @@ class LotPrice(BaseModel):
     product_review_status: str | None = None
 
 
+class RequirementBlocker(BaseModel):
+    code: str
+    reason: Literal["estado", "motor", "no_determinable"]   # motor: lo dice la evaluación, no el estado capturado
+    status: str
+
+
 class WorkspaceView(BaseModel):
     workspace: WorkspaceOut
     # Forma de services.affinity.serialize_affinity; None = sin evaluar.
     affinity: dict[str, Any] | None
     assessments: list[AssessmentOut]
     lots: list[LotPrice]
+    # Requisitos que bloquean hoy (motor en memoria sobre los datos actuales). La compuerta exige además validar los
+    # pendientes y registrar decisión y aprobaciones.
+    blockers: list[RequirementBlocker] = []

@@ -98,6 +98,7 @@ export const BLOCKER_LABEL: Record<string, string> = {
   aprobacion_tecnica: 'Aprobación técnica',
   aprobacion_comercial: 'Aprobación comercial',
   aprobaciones_desactualizadas: 'Aprobaciones desactualizadas',
+  sin_requisitos: 'Sin requisitos obligatorios',
 }
 
 export const REVIEW_DECISIONS: { value: string; label: string; hint: string }[] = [

@@ -11,6 +11,7 @@
   «listo para presentación»: la revisión final humana sigue siendo necesaria.
 """
 from collections import Counter
+from types import SimpleNamespace
 
 from sqlalchemy import delete, select
 from sqlalchemy.dialects import postgresql, sqlite
@@ -18,10 +19,12 @@ from sqlalchemy.orm import Session
 
 from app.core.errors import AppError
 from app.core.permissions import Perm, permissions_for
-from app.models import BidWorkspace, MatchAssessment, Opportunity, Requirement
+from app.models import BidWorkspace, DataKind, MatchAssessment, Opportunity, Requirement, User
 from app.models.base import new_id, utcnow
 from app.services import audit
-from app.services.affinity import Affinity, check_validity, compute_affinity, serialize_affinity
+from app.services.affinity import (
+    Affinity, blocking_details, check_validity, compute_affinity, serialize_affinity,
+)
 from app.services.matching import ENGINE_VERSION, RuleResult, evaluate, spec_from_requirement, variant_attributes
 
 PHASE_ANALYSIS = "analisis"
@@ -110,18 +113,15 @@ def refresh_affinity(db: Session, ws: BidWorkspace) -> None:
         opportunity, _requirements(db, opportunity.id), _assessments(db, opportunity.id)))
 
 
-def assess(db: Session, user, opportunity: Opportunity) -> Affinity:
-    """Evalúa cada requisito comparable contra la variante propuesta de su partida y guarda la afinidad.
+def ensure_not_historical(opportunity: Opportunity) -> None:
+    """Una referencia histórica (procedimiento pasado) nunca se prepara como expediente."""
+    if opportunity.data_kind == DataKind.HISTORICAL.value:
+        raise AppError(409, "historical_opportunity", "Las referencias históricas no se preparan como expediente.")
 
-    Reemplaza las evaluaciones anteriores de la oportunidad. No cambia el estado de ningún requisito.
-    """
-    _require(user, Perm.OPPORTUNITY_WRITE, Perm.REQUIREMENT_REVIEW)
-    ws = get_or_create_workspace(db, opportunity)
-    lock_workspace(db, ws)
-    reqs = _requirements(db, opportunity.id)
-    db.execute(delete(MatchAssessment).where(MatchAssessment.opportunity_id == opportunity.id)
-               .execution_options(synchronize_session=False))
-    rows: list[MatchAssessment] = []
+
+def engine_results(reqs: list[Requirement]) -> list[tuple[Requirement, object, RuleResult]]:
+    """(requisito, variante propuesta actual, resultado) para cada requisito comparable. Sin tocar la base."""
+    out = []
     for r in reqs:
         spec = spec_from_requirement(r)
         if spec is None or r.lot is None:
@@ -132,6 +132,24 @@ def assess(db: Session, user, opportunity: Opportunity) -> Affinity:
                                 "se infiere cumplimiento.", "sin_variante_propuesta", None, None)
         else:
             result = evaluate(spec, variant_attributes(variant))
+        out.append((r, variant, result))
+    return out
+
+
+def requirement_blockers(db: Session, opportunity_id: str) -> list[dict]:
+    """Bloqueantes por requisito para el panel, con el motor corrido en memoria sobre los datos actuales."""
+    reqs = _requirements(db, opportunity_id)
+    live = [SimpleNamespace(requirement_id=r.id, result=res.result) for r, _v, res in engine_results(reqs)]
+    return blocking_details(reqs, live)
+
+
+def evaluate_requirements(db: Session, opportunity: Opportunity, reqs: list[Requirement]) -> list[MatchAssessment]:
+    """Corre el motor sobre cada requisito comparable contra la variante propuesta **actual** de su partida y
+    reemplaza las evaluaciones guardadas de la oportunidad. Es puro y barato; no audita (lo hace quien llama)."""
+    db.execute(delete(MatchAssessment).where(MatchAssessment.opportunity_id == opportunity.id)
+               .execution_options(synchronize_session=False))
+    rows: list[MatchAssessment] = []
+    for r, variant, result in engine_results(reqs):
         row = MatchAssessment(id=new_id(), organization_id=opportunity.organization_id,
                               opportunity_id=opportunity.id, lot_id=r.lot_id,
                               variant_id=variant.id if variant else None, requirement_id=r.id,
@@ -141,6 +159,20 @@ def assess(db: Session, user, opportunity: Opportunity) -> Affinity:
         db.add(row)
         rows.append(row)
     db.flush()
+    return rows
+
+
+def assess(db: Session, user, opportunity: Opportunity) -> Affinity:
+    """Evalúa cada requisito comparable contra la variante propuesta de su partida y guarda la afinidad.
+
+    Reemplaza las evaluaciones anteriores de la oportunidad. No cambia el estado de ningún requisito.
+    """
+    _require(user, Perm.OPPORTUNITY_WRITE, Perm.REQUIREMENT_REVIEW)
+    ensure_not_historical(opportunity)
+    ws = get_or_create_workspace(db, opportunity)
+    lock_workspace(db, ws)
+    reqs = _requirements(db, opportunity.id)
+    rows = evaluate_requirements(db, opportunity, reqs)
     affinity = compute_affinity(opportunity, reqs, rows)
     before = {"assessed": ws.affinity is not None, "total": (ws.affinity or {}).get("total"),
               "blocking": (ws.affinity or {}).get("blocking")}
@@ -158,6 +190,9 @@ def assess(db: Session, user, opportunity: Opportunity) -> Affinity:
 _DECISION_FIELDS = ["decision", "decision_by_id", "decision_at", "decision_reason", "phase"]
 _APPROVAL_KINDS = {"tecnica": ("technical", Perm.REQUIREMENT_REVIEW, "commercial"),
                    "comercial": ("commercial", Perm.PRICING_APPROVE, "technical")}
+_KIND_LABELS = {"tecnica": "técnica", "comercial": "comercial"}
+TECHNICAL_SELF_APPROVAL_MESSAGE = ("No puedes aprobar técnicamente un expediente en el que cargaste evidencia. "
+                                   "Cambia a la cuenta del revisor")
 _STATUS_LABELS = {"pendiente": "Pendiente", "desconocido": "Desconocido", "faltante": "Faltante",
                   "vencido": "Vencido", "incumple": "Incumple", "en_revision": "En revisión"}
 
@@ -177,6 +212,7 @@ def decide(db: Session, user, ws: BidWorkspace, decision: str, reason: str) -> B
         raise AppError(422, "reason_required", "Indica el motivo de la decisión.")
     if decision not in DECISIONS:
         raise AppError(422, "invalid_decision", "La decisión debe ser participar o no_participar.")
+    ensure_not_historical(db.get(Opportunity, ws.opportunity_id))
     lock_workspace(db, ws)
     before = audit.snapshot(ws, _DECISION_FIELDS)
     ws.decision, ws.decision_by_id, ws.decision_at, ws.decision_reason = decision, user.id, utcnow(), reason
@@ -189,15 +225,35 @@ def decide(db: Session, user, ws: BidWorkspace, decision: str, reason: str) -> B
 
 
 def approve(db: Session, user, ws: BidWorkspace, kind: str) -> BidWorkspace:
-    """Aprobación técnica (`requirement.review`) o comercial (`pricing.approve`). Nunca las dos la misma persona."""
+    """Aprobación técnica (`requirement.review`) o comercial (`pricing.approve`).
+
+    - Nunca las dos la misma persona (403 `segregation`).
+    - Quien cargó o vinculó evidencia en la oportunidad no da la técnica (403 `self_approval`).
+    - Una aprobación vigente de otra persona no se reemplaza en silencio (409 `already_approved`); solo un cambio en
+      los requisitos la anula. Repetir la propia no cambia nada.
+    """
+    from app.services import review  # review importa este módulo
+
     if kind not in _APPROVAL_KINDS:
         raise AppError(422, "invalid_kind", "La aprobación debe ser tecnica o comercial.")
     mine, perm, other = _APPROVAL_KINDS[kind]
     _require(user, perm)
+    ensure_not_historical(db.get(Opportunity, ws.opportunity_id))
     lock_workspace(db, ws)
     if getattr(ws, f"{other}_approval_by_id") == user.id:
         raise AppError(403, "segregation", "La aprobación técnica y la comercial deben darlas personas distintas; "
                                            "tú ya diste la otra.")
+    if kind == "tecnica" and user.id in review.opportunity_uploaders(db, ws.opportunity_id):
+        raise AppError(403, "self_approval", TECHNICAL_SELF_APPROVAL_MESSAGE)
+    holder_id = getattr(ws, f"{mine}_approval_by_id")
+    if holder_id == user.id:
+        return ws
+    if holder_id is not None:
+        holder = db.get(User, holder_id)
+        raise AppError(409, "already_approved",
+                       f"Ya existe una aprobación {_KIND_LABELS[kind]} de {holder.full_name if holder else 'otra persona'}; "
+                       "cualquier cambio en requisitos la invalida.",
+                       {"kind": kind, "approved_by": holder.full_name if holder else None})
     before = audit.snapshot(ws, [*_APPROVAL_FIELDS, "approvals_stale"])
     setattr(ws, f"{mine}_approval_by_id", user.id)
     setattr(ws, f"{mine}_approval_at", utcnow())
@@ -217,9 +273,18 @@ def readiness_blockers(db: Session, ws: BidWorkspace) -> list[dict]:
     if ws.decision != "participar":
         items.append({"code": "decision", "kind": "decision",
                       "message": "Falta la decisión de participar del responsable comercial."})
+    opportunity = db.get(Opportunity, ws.opportunity_id)
     reqs = _requirements(db, ws.opportunity_id)
-    by_req = {a.requirement_id: a for a in _assessments(db, ws.opportunity_id)}
+    # El conflicto objetivo se revisa con una evaluación nueva (variantes y requisitos actuales), no con la guardada:
+    # nadie tuvo que pulsar «Evaluar» y un cambio de variante posterior no se escapa.
+    rows = evaluate_requirements(db, opportunity, reqs)
+    ws.affinity = serialize_affinity(compute_affinity(opportunity, reqs, rows))
+    by_req = {a.requirement_id: a for a in rows}
     today = review.today_mx()
+    applicable = [r for r in reqs if r.mandatory is not False and r.status != "no_aplica_justificado"]
+    if not applicable:
+        items.append({"code": "sin_requisitos", "kind": "requisito",
+                      "message": "No hay requisitos obligatorios aplicables capturados."})
     for r in reqs:
         if r.mandatory is False or r.status == "no_aplica_justificado":
             continue
@@ -257,6 +322,7 @@ def readiness_blockers(db: Session, ws: BidWorkspace) -> list[dict]:
 def mark_ready(db: Session, user, ws: BidWorkspace) -> BidWorkspace:
     """Marca el expediente listo para la revisión final humana; nunca «listo para presentación»."""
     _require(user, Perm.BID_DECIDE)
+    ensure_not_historical(db.get(Opportunity, ws.opportunity_id))
     lock_workspace(db, ws)
     items = readiness_blockers(db, ws)
     if items:
@@ -268,5 +334,7 @@ def mark_ready(db: Session, user, ws: BidWorkspace) -> BidWorkspace:
     audit.record(db, organization_id=ws.organization_id, actor_id=user.id, action="workspace.ready",
                  resource_type="bid_workspace", resource_id=ws.id, before=before,
                  after={**audit.snapshot(ws, ["phase", "version", "technical_approval_by_id",
-                                              "commercial_approval_by_id", "decision"])})
+                                              "commercial_approval_by_id", "decision"]),
+                        "engine_version": ENGINE_VERSION,
+                        "results": dict(Counter(a.result for a in _assessments(db, ws.opportunity_id)))})
     return ws

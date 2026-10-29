@@ -237,7 +237,6 @@ def test_ready_blocked_with_missing_mandatory(client):
     """US06: un requisito obligatorio faltante bloquea el expediente aunque haya decisión y aprobaciones."""
     responsable, revisor = _h(client, "responsable"), _h(client, "revisor")
     opp = _opp(client, responsable)
-    _assess(client, revisor, opp["id"])
     assert _decide(client, responsable, opp["id"]).status_code == 200
     assert _approve(client, revisor, opp["id"], "tecnica").status_code == 200
     assert _approve(client, responsable, opp["id"], "comercial").status_code == 200
@@ -248,7 +247,8 @@ def test_ready_blocked_with_missing_mandatory(client):
     assert "aprobacion_tecnica" not in blockers and "decision" not in blockers
     items = {i["code"]: i for i in r.json()["details"]["items"]}
     assert items["DEMO-REQ-005"]["message"]
-    # El bloqueante de la medida incompatible dice por qué, aunque el estado capturado siga «pendiente».
+    # El bloqueante de la medida incompatible dice por qué, aunque el estado capturado siga «pendiente» y nadie
+    # haya pulsado «Evaluar»: la compuerta corre el motor de nuevo.
     assert "El motor indica" in items["DEMO-REQ-003"]["message"]
     assert _ws(client, responsable, opp["id"])["workspace"]["phase"] == "preparacion"
 
@@ -345,12 +345,164 @@ def test_validated_requirement_with_objective_mismatch_blocks(client):
                           json={"document_id": doc["id"], "version": 1}).json()
         client.patch(f"/api/v1/requirements/{rid}/review", headers=revisor,
                      json={"decision": "cumple_validado", "reason": "Revisado", "expected_version": row["version"]})
-    _assess(client, analista, opp_id)
+    # Sin ninguna evaluación previa: la compuerta corre el motor y detecta el conflicto.
+    db = SessionLocal()
+    assert db.scalar(select(MatchAssessment.id).where(MatchAssessment.opportunity_id == opp_id)) is None
+    db.close()
     _decide(client, responsable, opp_id)
     _approve(client, revisor, opp_id, "tecnica")
     _approve(client, responsable, opp_id, "comercial")
     r = client.post(f"/api/v1/workspaces/{opp_id}/ready", headers=responsable)
     assert r.status_code == 409 and r.json()["details"]["blockers"] == ["TEST-REQ-1"]
+    assert r.json()["details"]["items"][0]["kind"] == "conflicto"
+
+
+def _validate_all(client, opp_id, req_ids, uploader="analista1", reviewer="revisor"):
+    up, rv = _h(client, uploader), _h(client, reviewer)
+    doc = client.post("/api/v1/documents", headers=up, files={"file": ("ficha.pdf", PDF, "application/pdf")},
+                      data={"title": "Ficha", "scope": "expediente", "data_kind": "SYNTHETIC",
+                            "opportunity_id": opp_id}).json()
+    for rid in req_ids:
+        row = client.post(f"/api/v1/requirements/{rid}/evidence", headers=up,
+                          json={"document_id": doc["id"], "version": 1}).json()
+        r = client.patch(f"/api/v1/requirements/{rid}/review", headers=rv,
+                         json={"decision": "cumple_validado", "reason": "Revisado", "expected_version": row["version"]})
+        assert r.status_code == 200, r.text
+
+
+def test_gate_rechecks_after_variant_change(client):
+    """Evaluado y validado con una variante que coincide; si después cambia la variante propuesta, la compuerta
+    vuelve a correr el motor y bloquea, aunque la evaluación guardada diga «coincide»."""
+    opp_id, req_ids = _scenario_ready_to_validate()
+    analista, revisor, responsable = _h(client, "analista1"), _h(client, "revisor"), _h(client, "responsable")
+    assert _by_code(_assess(client, analista, opp_id))["TEST-REQ-1"]["result"] == "coincide"
+    _validate_all(client, opp_id, req_ids)
+    db = SessionLocal()
+    lot = db.scalars(select(Lot).where(Lot.opportunity_id == opp_id)).one()
+    lot.proposed_variant_id = db.scalars(select(Variant.id).where(Variant.sku == "DEMO-PLA-002")).one()  # 8 orificios
+    db.commit()
+    db.close()
+    _decide(client, responsable, opp_id)
+    _approve(client, revisor, opp_id, "tecnica")
+    _approve(client, responsable, opp_id, "comercial")
+    r = client.post(f"/api/v1/workspaces/{opp_id}/ready", headers=responsable)
+    assert r.status_code == 409 and r.json()["details"]["blockers"] == ["TEST-REQ-1"]
+    assert r.json()["details"]["items"][0]["kind"] == "conflicto"
+
+
+def test_ready_blocked_without_requirements(client):
+    """Un expediente sin requisitos obligatorios aplicables no pasa la compuerta aunque tenga decisión y aprobaciones."""
+    db = SessionLocal()
+    org = db.scalars(select(Organization)).first()
+    opp = Opportunity(organization_id=org.id, external_id="DEMO-TEST-EMPTY", normalized_id="DEMOTESTEMPTY",
+                      title="Sin requisitos", buyer="Institución ficticia", data_kind="SYNTHETIC",
+                      verification_status="simulada")
+    db.add(opp)
+    db.flush()
+    db.add(Requirement(organization_id=org.id, code="TEST-OPT", opportunity_id=opp.id, text="Opcional",
+                       req_type="documental", mandatory=False, status="faltante", data_kind="SYNTHETIC"))
+    db.commit()
+    opp_id = opp.id
+    db.close()
+    revisor, responsable = _h(client, "revisor"), _h(client, "responsable")
+    _decide(client, responsable, opp_id)
+    assert _approve(client, revisor, opp_id, "tecnica").status_code == 200
+    assert _approve(client, responsable, opp_id, "comercial").status_code == 200
+    r = client.post(f"/api/v1/workspaces/{opp_id}/ready", headers=responsable)
+    assert r.status_code == 409 and r.json()["details"]["blockers"] == ["sin_requisitos"]
+    assert r.json()["details"]["items"][0]["message"] == "No hay requisitos obligatorios aplicables capturados."
+
+
+def test_historical_opportunity_is_never_a_workspace(client):
+    presentador = _h(client, "presentador")
+    hist = client.get("/api/v1/opportunities", params={"data_kind": "HISTORICAL"}, headers=presentador).json()["items"][0]
+    calls = [
+        client.post(f"/api/v1/workspaces/{hist['id']}/assess", headers=presentador),
+        _decide(client, presentador, hist["id"]),
+        _approve(client, presentador, hist["id"], "comercial"),
+        client.post(f"/api/v1/workspaces/{hist['id']}/ready", headers=presentador),
+    ]
+    for r in calls:
+        assert r.status_code == 409 and r.json()["code"] == "historical_opportunity", r.text
+    assert r.json()["message"] == "Las referencias históricas no se preparan como expediente."
+    db = SessionLocal()
+    assert db.scalar(select(BidWorkspace.id).where(BidWorkspace.opportunity_id == hist["id"])) is None
+    db.close()
+
+
+def test_technical_approval_blocked_for_evidence_uploader(client):
+    """Quien cargó o vinculó evidencia en la oportunidad no da la aprobación técnica; la comercial sí."""
+    presentador = _h(client, "presentador")
+    opp = _opp(client, presentador)
+    doc = client.post("/api/v1/documents", headers=presentador, files={"file": ("ficha.pdf", PDF, "application/pdf")},
+                      data={"title": "Ficha", "scope": "expediente", "data_kind": "SYNTHETIC",
+                            "opportunity_id": opp["id"]}).json()
+    req = next(r for r in client.get(f"/api/v1/opportunities/{opp['id']}/requirements", headers=presentador).json()
+               if r["code"] == "DEMO-REQ-005")
+    assert client.post(f"/api/v1/requirements/{req['id']}/evidence", headers=presentador,
+                       json={"document_id": doc["id"], "version": 1}).status_code == 201
+    r = _approve(client, presentador, opp["id"], "tecnica")
+    assert r.status_code == 403 and r.json()["code"] == "self_approval"
+    assert r.json()["message"] == ("No puedes aprobar técnicamente un expediente en el que cargaste evidencia. "
+                                   "Cambia a la cuenta del revisor")
+    assert _approve(client, presentador, opp["id"], "comercial").status_code == 200
+    # Subir la versión (aunque otra persona la vincule) cuenta igual.
+    revisor, analista = _h(client, "revisor"), _h(client, "analista1")
+    doc2 = client.post("/api/v1/documents", headers=revisor, files={"file": ("f2.pdf", PDF, "application/pdf")},
+                       data={"title": "Ficha 2", "scope": "expediente", "data_kind": "SYNTHETIC",
+                             "opportunity_id": opp["id"]}).json()
+    req6 = next(r for r in client.get(f"/api/v1/opportunities/{opp['id']}/requirements", headers=analista).json()
+                if r["code"] == "DEMO-REQ-006")
+    client.post(f"/api/v1/requirements/{req6['id']}/evidence", headers=analista,
+                json={"document_id": doc2["id"], "version": 1})
+    r = _approve(client, revisor, opp["id"], "tecnica")
+    assert r.status_code == 403 and r.json()["code"] == "self_approval"
+
+
+def test_existing_approval_is_not_replaced(client):
+    revisor, presentador, analista = _h(client, "revisor"), _h(client, "presentador"), _h(client, "analista1")
+    opp = _opp(client, revisor)
+    assert _approve(client, revisor, opp["id"], "tecnica").status_code == 200
+    version = _ws(client, revisor, opp["id"])["workspace"]["version"]
+    r = _approve(client, presentador, opp["id"], "tecnica")
+    assert r.status_code == 409 and r.json()["code"] == "already_approved"
+    assert r.json()["message"] == ("Ya existe una aprobación técnica de Revisor técnico documental (demo); "
+                                   "cualquier cambio en requisitos la invalida.")
+    # Repetir la propia no cambia nada ni deja otro evento.
+    assert _approve(client, revisor, opp["id"], "tecnica").status_code == 200
+    assert _ws(client, revisor, opp["id"])["workspace"]["version"] == version
+    assert len(_events("workspace.approval")) == 1
+    # Un cambio en requisitos anula la aprobación y entonces otra persona sí puede darla.
+    doc = client.post("/api/v1/documents", headers=analista, files={"file": ("f.pdf", PDF, "application/pdf")},
+                      data={"title": "Ficha", "scope": "expediente", "data_kind": "SYNTHETIC",
+                            "opportunity_id": opp["id"]}).json()
+    req = next(r for r in client.get(f"/api/v1/opportunities/{opp['id']}/requirements", headers=analista).json()
+               if r["code"] == "DEMO-REQ-005")
+    client.post(f"/api/v1/requirements/{req['id']}/evidence", headers=analista,
+                json={"document_id": doc["id"], "version": 1})
+    r = _approve(client, presentador, opp["id"], "tecnica")
+    assert r.status_code == 200
+    assert r.json()["workspace"]["technical_approval_by"]["email"] == "presentador@dipromedic.example"
+
+
+def test_view_blockers_match_the_gate(client, analista):
+    """El panel lista los bloqueantes con su motivo, con el motor corrido sobre los datos actuales (sin «Evaluar»)."""
+    view = _ws(client, analista, _opp(client, analista)["id"])
+    assert view["assessments"] == []
+    blockers = {b["code"]: b for b in view["blockers"]}
+    assert blockers["DEMO-REQ-003"] == {"code": "DEMO-REQ-003", "reason": "motor", "status": "pendiente"}
+    assert blockers["DEMO-REQ-005"]["reason"] == "estado"
+    assert "DEMO-REQ-001" not in blockers
+    lic008 = _ws(client, analista, _opp(client, analista, "DEMO-LIC-008")["id"])
+    assert {b["code"]: b["reason"] for b in lic008["blockers"]}["DEMO-REQ-020"] == "no_determinable"
+
+
+def test_history_includes_workspace_events(client):
+    responsable = _h(client, "responsable")
+    opp = _opp(client, responsable)
+    assert _decide(client, responsable, opp["id"]).status_code == 200
+    history = client.get(f"/api/v1/opportunities/{opp['id']}/history", headers=responsable).json()
+    assert "workspace.decision" in [e["action"] for e in history]
 
 
 def test_workspace_of_other_organization_is_404(client, analista):

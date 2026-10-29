@@ -155,6 +155,20 @@ const FIELD: Record<string, string> = {
   due_date: 'Fecha límite',
   title: 'Título',
   decision: 'Decisión',
+  workspace: 'Expediente',
+  evidence: 'Evidencia revisada',
+  evidence_id: 'Evidencia',
+  document_code: 'Documento',
+  document_version: 'Versión del documento',
+  page: 'Página',
+  fragment: 'Fragmento',
+  kind: 'Tipo de aprobación',
+  requirement_code: 'Requisito',
+  phase: 'Fase',
+  approvals_stale: 'Aprobaciones desactualizadas',
+  technical_approval_by_id: 'Aprobación técnica',
+  commercial_approval_by_id: 'Aprobación comercial',
+  decision_reason: 'Motivo de la decisión',
 }
 export const fieldLabel = (c: string) => FIELD[c] ?? c
 

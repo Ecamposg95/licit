@@ -12,7 +12,7 @@ import {
   UserCheck,
 } from 'lucide-react'
 import ConfirmDialog from '@/components/ConfirmDialog'
-import { Badge } from '@/components/badges'
+import { Badge, REQUIREMENT_STATUS } from '@/components/badges'
 import { DateTimeText } from '@/components/dates'
 import { ErrorMeta, ErrorPanel } from '@/components/feedback'
 import { toApiError, type ApiError } from '@/lib/api'
@@ -277,16 +277,21 @@ export default function WorkspacePanel({ opportunityId, view, onChanged, onOpenR
 
         <div>
           <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Bloqueantes</h3>
-          {!affinity ? (
-            <p className="mt-2 text-sm text-slate-500">Se listan al evaluar. La puntuación nunca los oculta.</p>
-          ) : affinity.blocking.length === 0 ? (
-            <p className="mt-2 text-sm text-slate-600">Ningún requisito obligatorio en incumple, faltante o vencido.</p>
+          {view.data.blockers.length === 0 ? (
+            <p className="mt-2 text-sm text-slate-600">
+              Ningún requisito obligatorio en incumple, faltante o vencido ni con obligatoriedad por determinar.
+            </p>
           ) : (
             <>
-              <ul className="mt-2 flex flex-wrap gap-1.5" aria-label="Requisitos bloqueantes">
-                {affinity.blocking.map((code) => (
-                  <li key={code}>
-                    <Badge tone={{ icon: ShieldAlert, className: 'border-red-300 bg-red-50 text-red-800' }}>{code}</Badge>
+              <ul className="mt-2 space-y-1.5" aria-label="Requisitos bloqueantes">
+                {view.data.blockers.map((b) => (
+                  <li key={b.code} className="flex flex-wrap items-center gap-1.5 text-xs text-slate-600">
+                    <Badge tone={{ icon: ShieldAlert, className: 'border-red-300 bg-red-50 text-red-800' }}>{b.code}</Badge>
+                    {b.reason === 'motor'
+                      ? `según el motor (estado: ${REQUIREMENT_STATUS[b.status]?.label ?? b.status})`
+                      : b.reason === 'no_determinable'
+                        ? 'obligatoriedad no determinable'
+                        : REQUIREMENT_STATUS[b.status]?.label ?? b.status}
                   </li>
                 ))}
               </ul>
@@ -295,6 +300,9 @@ export default function WorkspacePanel({ opportunityId, view, onChanged, onOpenR
               </button>
             </>
           )}
+          <p className="mt-2 text-[11px] text-slate-500">
+            La compuerta de revisión final además exige validar los pendientes y registrar la decisión y ambas aprobaciones.
+          </p>
         </div>
 
         <div className="space-y-3 text-sm">
@@ -340,7 +348,7 @@ export default function WorkspacePanel({ opportunityId, view, onChanged, onOpenR
                 </h3>
                 <div className="mt-1 flex items-start justify-between gap-2">
                   <Who user={by} at={at} empty="Pendiente" />
-                  {can && (
+                  {can && !by && (
                     <button
                       type="button"
                       className="btn-secondary shrink-0 px-2.5 py-1 text-xs"
@@ -353,7 +361,7 @@ export default function WorkspacePanel({ opportunityId, view, onChanged, onOpenR
                       onClick={() => run(kind, () => approveWorkspace(opportunityId, kind))}
                     >
                       <UserCheck aria-hidden="true" className="h-3.5 w-3.5" />
-                      {busy === kind ? 'Aprobando…' : by ? 'Aprobar de nuevo' : 'Aprobar'}
+                      {busy === kind ? 'Aprobando…' : 'Aprobar'}
                     </button>
                   )}
                 </div>

@@ -11,7 +11,7 @@ from app.core.errors import AppError
 from app.core.permissions import Perm, require_permission
 from app.core.tenant import get_owned
 from app.models import (
-    AuditEvent, Document, DocumentVersion, EvidenceLink, Lot, MatchAssessment, Opportunity, Requirement,
+    AuditEvent, BidWorkspace, Document, DocumentVersion, EvidenceLink, Lot, MatchAssessment, Opportunity, Requirement,
     RequirementStatus, Source, Task, User, Variant,
 )
 from app.schemas.v1 import (
@@ -244,6 +244,8 @@ def opportunity_history(opportunity_id: str, db: Session = Depends(get_db),
     ids = [opp.id]
     ids += list(db.scalars(select(Requirement.id).where(Requirement.opportunity_id == opp.id)))
     ids += list(db.scalars(select(Task.id).where(Task.opportunity_id == opp.id)))
+    # Los eventos del expediente (decisión, aprobaciones, evaluación, compuerta) también son de la oportunidad.
+    ids += list(db.scalars(select(BidWorkspace.id).where(BidWorkspace.opportunity_id == opp.id)))
     # Sólo la corrida demo actual: los ensayos previos siguen en la bitácora global.
     events = db.scalars(select(AuditEvent).where(
         AuditEvent.organization_id == user.organization_id, AuditEvent.resource_id.in_(ids),

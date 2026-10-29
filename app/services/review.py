@@ -38,7 +38,7 @@ EXPIRED = ("vencido", "vence_antes")
 TASK_STATUSES = ("pendiente", "en_progreso", "hecha", "cancelada")
 OPEN_TASK_STATUSES = ("pendiente", "en_progreso")
 
-SELF_APPROVAL_MESSAGE = "No puedes aprobar evidencia que tú cargaste o vinculaste. Cambia a la cuenta del revisor."
+SELF_APPROVAL_MESSAGE = "No puedes aprobar evidencia que tú cargaste. Cambia a la cuenta del revisor"
 
 _REQ_FIELDS = ["status", "status_reason", "reviewer_id", "version"]
 _TASK_FIELDS = ["title", "status", "assignee_id", "due_date"]
@@ -92,6 +92,19 @@ def lock_requirement(db: Session, requirement: Requirement) -> None:
     una lectura que otra solicitud simultánea pudo dejar atrás. En SQLite no hay FOR UPDATE."""
     db.execute(select(Requirement.id).where(Requirement.id == requirement.id).with_for_update())
     db.refresh(requirement)
+
+
+def opportunity_uploaders(db: Session, opportunity_id: str) -> set[str]:
+    """Quienes vincularon o subieron evidencia de cualquier requisito de la oportunidad."""
+    links = db.execute(select(EvidenceLink.created_by_id, EvidenceLink.document_version_id)
+                       .join(Requirement, EvidenceLink.requirement_id == Requirement.id)
+                       .where(Requirement.opportunity_id == opportunity_id)).all()
+    ids = {created for created, _v in links if created}
+    version_ids = [v for _c, v in links if v]
+    if version_ids:
+        ids |= set(db.scalars(select(DocumentVersion.uploaded_by_id).where(
+            DocumentVersion.id.in_(version_ids), DocumentVersion.uploaded_by_id.is_not(None))))
+    return ids
 
 
 # ── Evidencia ────────────────────────────────────────────────────────────────
