@@ -196,3 +196,104 @@ def test_runs_listed_with_summary(client, direccion):
     assert runs[0]["approvals"] == 1 and runs[1]["approvals"] == 0
     assert runs[1]["events"] >= 1
 
+
+# ── G2 · Cuentas demo y vencimiento ──────────────────────────────────────────
+
+def test_demo_accounts_listed_without_secrets(client):
+    r = client.get("/api/v1/demo/accounts")      # sin autenticación
+
+    assert r.status_code == 200, r.text
+    accounts = r.json()
+    assert [a["email"] for a in accounts] == [
+        "direccion@dipromedic.example", "analista1@dipromedic.example", "analista2@dipromedic.example",
+        "analista3@dipromedic.example", "revisor@dipromedic.example", "responsable@dipromedic.example",
+        "ti@dipromedic.example", "presentador@dipromedic.example",
+    ]
+    for account in accounts:
+        assert set(account) == {"email", "full_name", "roles"}
+        assert not any("pass" in key.lower() for key in account)
+        assert account["full_name"] and account["roles"]
+    by_email = {a["email"]: a for a in accounts}
+    assert by_email["revisor@dipromedic.example"]["roles"] == ["Revisor técnico documental"]
+    assert len(by_email["presentador@dipromedic.example"]["roles"]) == len(ROLE_LABELS)
+    # Nada que sirva para entrar o para identificar filas: ni la contraseña de demo, ni hashes, ni ids.
+    raw = r.text
+    assert "demo-pass" not in raw and "$2b$" not in raw and "hashed" not in raw
+    db = SessionLocal()
+    assert not any(u.id in raw for u in db.scalars(select(User)))
+    db.close()
+
+
+def test_demo_accounts_only_active_unexpired_demo_domain(client):
+    from app.core.security import get_password_hash
+
+    db = SessionLocal()
+    org_id = _org_id(db)
+    _user(db, "analista2@dipromedic.example").is_active = False
+    _user(db, "analista3@dipromedic.example").expires_at = utcnow() - timedelta(minutes=1)
+    _user(db, "revisor@dipromedic.example").expires_at = utcnow() + timedelta(days=1)     # vigente: se lista
+    db.add(User(organization_id=org_id, email="gerente@cliente.example", full_name="Cuenta real",
+                hashed_password=get_password_hash("x")))
+    db.commit()
+    db.close()
+
+    emails = [a["email"] for a in client.get("/api/v1/demo/accounts").json()]
+
+    assert "analista2@dipromedic.example" not in emails           # inactiva
+    assert "analista3@dipromedic.example" not in emails           # vencida: no podría entrar
+    assert "gerente@cliente.example" not in emails                # otro dominio
+    assert "revisor@dipromedic.example" in emails
+    assert "analista1@dipromedic.example" in emails
+
+
+def test_demo_accounts_404_when_not_demo(client, monkeypatch):
+    from app.core import config
+
+    monkeypatch.setattr(config, "DEMO_MODE", False)
+
+    r = client.get("/api/v1/demo/accounts")
+
+    assert r.status_code == 404
+    assert r.json()["code"] == "not_found"
+    assert "dipromedic" not in r.text
+
+
+def test_expired_account_login_401(client):
+    db = SessionLocal()
+    _user(db, "analista1@dipromedic.example").expires_at = utcnow() - timedelta(seconds=1)
+    db.commit()
+    db.close()
+
+    r = client.post("/api/v1/auth/login", data={"username": "analista1@dipromedic.example", "password": "demo-pass"})
+
+    assert r.status_code == 401
+    assert r.json()["code"] == "account_expired"
+    assert "venci" in r.json()["message"].lower()
+    # Con la contraseña equivocada no se revela que la cuenta venció.
+    bad = client.post("/api/v1/auth/login", data={"username": "analista1@dipromedic.example", "password": "otra"})
+    assert bad.status_code == 401 and bad.json()["code"] == "invalid_credentials"
+    # Una cuenta que vence en el futuro sí entra.
+    db = SessionLocal()
+    _user(db, "analista1@dipromedic.example").expires_at = utcnow() + timedelta(hours=1)
+    db.commit()
+    db.close()
+    ok = client.post("/api/v1/auth/login", data={"username": "analista1@dipromedic.example", "password": "demo-pass"})
+    assert ok.status_code == 200
+
+
+def test_expired_account_token_rejected(client):
+    headers = login(client, "analista1@dipromedic.example")
+    assert client.get("/api/v1/auth/me", headers=headers).status_code == 200
+
+    db = SessionLocal()
+    _user(db, "analista1@dipromedic.example").expires_at = utcnow() - timedelta(seconds=1)
+    db.commit()
+    db.close()
+
+    for path in ("/api/v1/auth/me", "/api/v1/opportunities", "/api/v1/meta"):
+        r = client.get(path, headers=headers)
+        assert r.status_code == 401, path
+        assert r.json()["code"] == "account_expired"
+    # Otra cuenta no se ve afectada.
+    assert client.get("/api/v1/auth/me", headers=login(client, "revisor@dipromedic.example")).status_code == 200
+

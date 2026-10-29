@@ -9,7 +9,10 @@ from app.core import config
 from app.core.database import get_db
 from app.core.errors import AppError
 from app.core.permissions import ROLE_LABELS, permissions_for
-from app.core.security import ACCESS_TOKEN_EXPIRE_MINUTES, create_access_token, get_current_user, verify_password
+from app.core.security import (
+    ACCESS_TOKEN_EXPIRE_MINUTES, account_expired_error, create_access_token, get_current_user, is_expired,
+    verify_password,
+)
 from app.models import Organization, User
 from app.schemas.v1 import Me, Meta, Token
 from app.services import audit
@@ -22,6 +25,9 @@ def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get
     user = db.scalars(select(User).where(User.email == form.username.strip().lower())).first()
     if not user or not user.is_active or not verify_password(form.password, user.hashed_password):
         raise AppError(401, "invalid_credentials", "Correo o contraseña incorrectos")
+    # Después de verificar la contraseña: con credenciales erróneas no se revela que la cuenta venció.
+    if is_expired(user):
+        raise account_expired_error()
     audit.record(db, organization_id=user.organization_id, actor_id=user.id, action="auth.login",
                  resource_type="user", resource_id=user.id)
     db.commit()

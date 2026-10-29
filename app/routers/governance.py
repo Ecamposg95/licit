@@ -5,19 +5,22 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
+from app.core import config
 from app.core.database import get_db
+from app.core.errors import AppError
 from app.core.permissions import ROLE_LABELS, ROLE_PERMISSIONS, Perm, Role, require_permission
+from app.core.security import is_expired
 from app.core.tenant import get_owned
 from app.models import (
     AuditEvent, BidWorkspace, DemoRun, GeneratedArtifact, Opportunity, Requirement, User,
 )
 from app.schemas.governance import (
-    PERMISSION_LABELS_ES, ApprovalOut, ApprovalTarget, DemoRunOut, IntegrityResult, PermissionLabel,
+    PERMISSION_LABELS_ES, ApprovalOut, ApprovalTarget, DemoAccount, DemoRunOut, IntegrityResult, PermissionLabel,
     PermissionMatrix, RolePermissions, RoleRef,
 )
 from app.schemas.v1 import UserRef
 from app.services import audit
-from app.services.demo_seed import current_demo_run_id
+from app.services.demo_seed import DEMO_USERS, current_demo_run_id
 
 router = APIRouter(prefix="/api/v1", tags=["gobierno"])
 
@@ -187,3 +190,27 @@ def demo_runs(db: Session = Depends(get_db), user: User = Depends(require_permis
         )
         for i, r in enumerate(runs)
     ]
+
+
+# ── Cuentas demo ─────────────────────────────────────────────────────────────
+
+DEMO_EMAIL_DOMAIN = "@dipromedic.example"
+
+
+@router.get("/demo/accounts", response_model=list[DemoAccount])
+def demo_accounts(db: Session = Depends(get_db)):
+    """Cuentas que el selector del demo puede ofrecer. Sin autenticación y solo con DEMO_MODE.
+
+    Publica únicamente correo, nombre y etiquetas de rol de las cuentas demo activas y vigentes:
+    nunca contraseñas, hashes ni identificadores. La contraseña la teclea quien presenta.
+    """
+    if not config.DEMO_MODE:
+        raise AppError(404, "not_found", "Ruta no encontrada")
+    users = [u for u in db.scalars(select(User).where(User.is_active.is_(True),
+                                                      User.email.like(f"%{DEMO_EMAIL_DOMAIN}")))
+             if not is_expired(u)]
+    order = {email: i for i, (email, *_rest) in enumerate(DEMO_USERS)}
+    users.sort(key=lambda u: (order.get(u.email, len(order)), u.email))
+    return [DemoAccount(email=u.email, full_name=u.full_name,
+                        roles=[r.label for r in _roles(u)]) for u in users]
+
