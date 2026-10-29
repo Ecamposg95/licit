@@ -437,3 +437,246 @@ def test_upload_sample_script_and_upload(client, analista, tmp_path):
     assert r.status_code == 201, r.text
     assert r.json()["data_kind"] == "SYNTHETIC" and r.json()["watermark"] == config.WATERMARK
     assert r.json()["page_count"] == 1
+
+
+# ── D5 · ingesta de PDFs del catálogo ────────────────────────────────────────
+
+import httpx  # noqa: E402
+
+from app.models import Product  # noqa: E402
+from app.services import catalog_documents as cd  # noqa: E402
+
+OWN_OWNER = "Marca propia de Dipromedic (creada en 2009 según la línea de tiempo de /nosotros)"
+THIRD_OWNER = "Tercero (Corentec, Corea)"
+TQ_URL = "https://traufix.com/wp-content/uploads/2026/02/TITAN-Humero-Proximal-TQ-048.pdf"
+BROCHURE_URL = "https://www.dipromedic.com/assets/docs/brochure/caleb/E-7-brochure.pdf"
+CATALOG_URL = "https://www.dipromedic.com/assets/docs/catalogos/traufix/Catalogo-Traufix-ES.pdf"
+COREN_URL = "https://www.dipromedic.com/assets/docs/brochure/corentec/Bencox-M-Stem.pdf"
+LOCAL_PREFIX = "docs/research/dipromedic/pdfs/"
+
+
+def mini_catalog() -> dict:
+    def pdf(title, url, local):
+        return {"title": title, "url": url, "http_status": 200, "size_bytes": 100, "size_mb": 0.0,
+                "host": url.split("/")[2].removeprefix("www."), "local_path": LOCAL_PREFIX + local if local else None}
+    return {
+        "source": "https://www.dipromedic.com", "checked_on": "2026-10-28",
+        "lines": [
+            {"line": "Traufix", "owner": OWN_OWNER, "products": [
+                {"id": "traufix_extremidad-superior_titan", "name": "TITAN", "documents": [
+                    {"type": "tecnica_quirurgica", "label": "Técnica Quirúrgica", "url": TQ_URL},
+                    {"type": "catalogo", "label": "Ver catálogo completo (página de categoría)", "url": CATALOG_URL}]},
+                {"id": "traufix_extremidad-superior_telios", "name": "TELIOS", "documents": [
+                    {"type": "catalogo", "label": "Ver catálogo completo (página de categoría)", "url": CATALOG_URL}]},
+            ]},
+            {"line": "Corentec", "owner": THIRD_OWNER, "products": [
+                {"id": "corentec_cadera_m-stem", "name": "M-Stem", "documents": [
+                    {"type": "brochure", "label": "Brochure", "url": COREN_URL}]}]},
+            {"line": "Caleb", "owner": "Tercero (Corea)", "products": []},
+        ],
+        "pdfs": [
+            pdf("Técnica Quirúrgica – TITAN Húmero Proximal", TQ_URL, "traufix.com/TITAN-Humero-Proximal-TQ-048.pdf"),
+            pdf("Catálogo Traufix", CATALOG_URL, "dipromedic/catalogos/traufix/Catalogo-Traufix-ES.pdf"),
+            pdf("Brochure – Vástago M-Stem", COREN_URL, "dipromedic/brochure/corentec/Bencox-M-Stem.pdf"),
+            pdf("Brochure – Lavador Pulsátil E7", BROCHURE_URL, "dipromedic/brochure/caleb/E-7-brochure.pdf"),
+            pdf("Ficha de un fabricante externo", "https://www.fabricante-externo.example/ficha.pdf", None),
+        ],
+    }
+
+
+def write_local(root, rel: str, data: bytes):
+    path = root / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(data)
+    return path
+
+
+def add_product(db, ref: str, name: str = "Producto real") -> Product:
+    product = Product(organization_id=org_id(), name=name, family="Osteosíntesis", data_kind="REAL", external_ref=ref)
+    db.add(product)
+    db.commit()
+    return product
+
+
+def test_doc_type_from_label():
+    assert cd.doc_type_from_label("Técnica Quirúrgica") == "tecnica_quirurgica"
+    assert cd.doc_type_from_label("Técnica Qurúrgica") == "tecnica_quirurgica"      # la errata del sitio
+    assert cd.doc_type_from_label("Técnica TIDIS II") == "tecnica_quirurgica"
+    assert cd.doc_type_from_label("Brochure") == "folleto"
+    assert cd.doc_type_from_label("Folleto no cementado") == "folleto"
+    assert cd.doc_type_from_label("Ver catálogo de anclas") == "catalogo"
+    assert cd.doc_type_from_label("Checklist") == "otro"
+    assert cd.doc_type_from_label(None) == "otro"
+    # Un nombre de archivo no es una validación: nunca se produce ficha_tecnica ni certificado.
+    assert cd.doc_type_from_label("Ficha técnica certificado") not in {"ficha_tecnica", "certificado"}
+
+
+def test_ingest_own_pdf_from_local(tmp_path):
+    data = pdf_bytes("tq048") + b"\n% " + b"x" * 500
+    write_local(tmp_path, "traufix.com/TITAN-Humero-Proximal-TQ-048.pdf", data)
+    with SessionLocal() as db:
+        product = add_product(db, "traufix_extremidad-superior_titan", "TITAN Placa bloqueada ALP")
+        product_id = product.id
+        result = cd.ingest_catalog_documents(db, org_id(), tmp_path, fetch=False, catalog=mini_catalog())
+        assert result["uploaded"] == 1
+        doc = db.scalars(select(Document).where(Document.external_url == TQ_URL)).one()
+        assert doc.data_kind == "REAL" and doc.scope == "producto" and doc.doc_type == "tecnica_quirurgica"
+        assert doc.third_party is False and doc.review_status == "pendiente"
+        assert doc.product_id == product_id
+        assert doc.title == "Técnica Quirúrgica – TITAN Húmero Proximal"
+        assert doc.watermark is None and doc.issuer_declared == "Sitio público traufix.com"
+        [version] = doc.versions
+        assert version.sha256 == hashlib.sha256(data).hexdigest()
+        assert version.size_bytes == len(data) and version.content_type == "application/pdf"
+        assert version.filename == "TITAN-Humero-Proximal-TQ-048.pdf"
+        assert get_storage().get(version.storage_key) == data
+        assert version.storage_key == f"org/{org_id()}/documents/{doc.id}/v1/TITAN-Humero-Proximal-TQ-048.pdf"
+        actions = {e.action for e in db.scalars(select(AuditEvent).where(AuditEvent.resource_id == doc.id))}
+        assert {"document.create", "document.version_upload"} <= actions
+        # Idempotente por external_url: una segunda corrida no duplica nada.
+        again = cd.ingest_catalog_documents(db, org_id(), tmp_path, fetch=False, catalog=mini_catalog())
+        assert again["uploaded"] == 0 and again["skipped"] >= 1
+        assert len(db.scalars(select(Document).where(Document.external_url == TQ_URL)).all()) == 1
+        assert len(db.scalars(select(DocumentVersion).where(DocumentVersion.document_id == doc.id)).all()) == 1
+
+
+def test_ingested_pdf_is_downloadable_by_page_viewer(client, analista, tmp_path):
+    write_local(tmp_path, "traufix.com/TITAN-Humero-Proximal-TQ-048.pdf", pdf_bytes("visor"))
+    with SessionLocal() as db:
+        cd.ingest_catalog_documents(db, org_id(), tmp_path, fetch=False, catalog=mini_catalog())
+        doc_id = db.scalars(select(Document.id).where(Document.external_url == TQ_URL)).one()
+    r = download(client, analista, doc_id)
+    assert r.status_code == 200 and r.content == pdf_bytes("visor")
+
+
+def test_third_party_link_only(tmp_path, monkeypatch):
+    downloaded = []
+    monkeypatch.setattr(cd, "_download", lambda url, **k: downloaded.append(url) or pdf_bytes("propio"))
+    monkeypatch.setattr(cd.time, "sleep", lambda s: None)
+    # Aunque exista copia local y aunque el archivo viva en dipromedic.com, el de otra marca solo se enlaza.
+    write_local(tmp_path, "dipromedic/brochure/corentec/Bencox-M-Stem.pdf", pdf_bytes("corentec"))
+    with SessionLocal() as db:
+        result = cd.ingest_catalog_documents(db, org_id(), tmp_path, fetch=True, catalog=mini_catalog())
+        assert result["linked_external"] == 2          # Corentec en dipromedic.com + el dominio externo
+        assert COREN_URL not in downloaded and not any("fabricante-externo" in u for u in downloaded)
+        for url in (COREN_URL, "https://www.fabricante-externo.example/ficha.pdf"):
+            doc = db.scalars(select(Document).where(Document.external_url == url)).one()
+            assert doc.third_party is True and doc.data_kind == "REAL" and doc.versions == []
+            assert doc.review_status == "pendiente"
+        assert not [d for d in db.scalars(select(Document)).all() if d.third_party and d.versions]
+        again = cd.ingest_catalog_documents(db, org_id(), tmp_path, fetch=True, catalog=mini_catalog())
+        assert again["linked_external"] == 0
+        assert len(db.scalars(select(Document).where(Document.third_party.is_(True))).all()) == 2
+
+
+def test_missing_product_creates_unlinked_document_and_reports(tmp_path):
+    write_local(tmp_path, "traufix.com/TITAN-Humero-Proximal-TQ-048.pdf", pdf_bytes("sinproducto"))
+    with SessionLocal() as db:
+        result = cd.ingest_catalog_documents(db, org_id(), tmp_path, fetch=False, catalog=mini_catalog())
+        doc = db.scalars(select(Document).where(Document.external_url == TQ_URL)).one()
+        assert doc.product_id is None and doc.versions
+        assert {"url": TQ_URL, "reason": "producto_no_importado"} in result["errors"]
+        # Al importar el producto, la siguiente corrida solo completa el vínculo.
+        product = add_product(db, "traufix_extremidad-superior_titan")
+        again = cd.ingest_catalog_documents(db, org_id(), tmp_path, fetch=False, catalog=mini_catalog())
+        db.refresh(doc)
+        assert doc.product_id == product.id and again["relinked"] == 1
+        assert TQ_URL not in [e["url"] for e in again["errors"]]
+
+
+def test_shared_catalog_is_not_linked_to_one_product(tmp_path):
+    write_local(tmp_path, "dipromedic/catalogos/traufix/Catalogo-Traufix-ES.pdf", pdf_bytes("catalogo"))
+    with SessionLocal() as db:
+        add_product(db, "traufix_extremidad-superior_titan")
+        add_product(db, "traufix_extremidad-superior_telios")
+        result = cd.ingest_catalog_documents(db, org_id(), tmp_path, fetch=False, catalog=mini_catalog())
+        doc = db.scalars(select(Document).where(Document.external_url == CATALOG_URL)).one()
+        assert doc.doc_type == "catalogo" and doc.product_id is None
+        assert CATALOG_URL not in [e["url"] for e in result["errors"]]
+
+
+def test_missing_local_copy_is_skipped_or_fetched(tmp_path, monkeypatch):
+    with SessionLocal() as db:
+        result = cd.ingest_catalog_documents(db, org_id(), tmp_path, fetch=False, catalog=mini_catalog())
+        assert result["uploaded"] == 0 and result["skipped"] == 3      # TQ, catálogo y folleto: sin copia local
+        assert not db.scalars(select(Document).where(Document.external_url.is_not(None),
+                                                     Document.third_party.is_(False))).all()
+        calls = []
+
+        def fake_download(url, **kwargs):
+            calls.append(url)
+            if url == BROCHURE_URL:
+                raise cd.FetchError("http_404")
+            return pdf_bytes("descargado")
+
+        monkeypatch.setattr(cd, "_download", fake_download)
+        monkeypatch.setattr(cd.time, "sleep", lambda s: None)
+        result = cd.ingest_catalog_documents(db, org_id(), None, fetch=True, catalog=mini_catalog())
+        assert result["uploaded"] == 2 and sorted(calls) == sorted([TQ_URL, CATALOG_URL, BROCHURE_URL])
+        assert {"url": BROCHURE_URL, "reason": "http_404"} in result["errors"]
+        assert not db.scalars(select(Document).where(Document.external_url == BROCHURE_URL)).all()
+
+
+def test_non_pdf_content_is_reported_not_stored(tmp_path):
+    write_local(tmp_path, "traufix.com/TITAN-Humero-Proximal-TQ-048.pdf", b"<html>404 Not Found</html>")
+    with SessionLocal() as db:
+        result = cd.ingest_catalog_documents(db, org_id(), tmp_path, fetch=False, catalog=mini_catalog())
+        assert {"url": TQ_URL, "reason": "archivo_no_valido"} in result["errors"]
+        assert not db.scalars(select(Document).where(Document.external_url == TQ_URL)).all()
+
+
+def test_download_guard_allows_only_own_https_hosts():
+    def handler(request: httpx.Request) -> httpx.Response:
+        host, path = request.url.host, request.url.path
+        if path == "/ok.pdf":
+            return httpx.Response(200, content=pdf_bytes("red"), headers={"content-type": "application/pdf"})
+        if path == "/to-own.pdf":
+            return httpx.Response(302, headers={"location": "https://www.dipromedic.com/ok.pdf"})
+        if path == "/to-evil.pdf":
+            return httpx.Response(302, headers={"location": "https://evil.example/ok.pdf"})
+        if path == "/to-http.pdf":
+            return httpx.Response(302, headers={"location": "http://traufix.com/ok.pdf"})
+        if path == "/loop.pdf":
+            return httpx.Response(302, headers={"location": f"https://{host}/loop.pdf"})
+        if path == "/big.pdf":
+            return httpx.Response(200, content=b"%PDF-" + b"0" * 2048)
+        return httpx.Response(404)
+
+    transport = httpx.MockTransport(handler)
+    get = lambda url, **kw: cd._download(url, transport=transport, **kw)      # noqa: E731
+    assert get("https://traufix.com/ok.pdf") == pdf_bytes("red")
+    assert get("https://traufix.com/to-own.pdf") == pdf_bytes("red")           # redirección dentro de los hosts propios
+    for url, reason in [("http://traufix.com/ok.pdf", "dominio_no_permitido"),
+                        ("https://evil.example/ok.pdf", "dominio_no_permitido"),
+                        ("https://traufix.com.evil.example/ok.pdf", "dominio_no_permitido"),
+                        ("https://traufix.com/to-evil.pdf", "dominio_no_permitido"),
+                        ("https://traufix.com/to-http.pdf", "dominio_no_permitido"),
+                        ("https://traufix.com/loop.pdf", "demasiadas_redirecciones"),
+                        ("https://traufix.com/missing.pdf", "http_404")]:
+        with pytest.raises(cd.FetchError) as err:
+            get(url)
+        assert err.value.reason == reason, url
+    with pytest.raises(cd.FetchError) as err:
+        get("https://traufix.com/big.pdf", max_bytes=1024)
+    assert err.value.reason == "archivo_demasiado_grande"
+
+
+def test_real_catalog_fixture_classification():
+    """El fixture real: nada de otra marca se sube, aunque su archivo viva en dipromedic.com."""
+    catalog = cd.load_catalog()
+    inventory = cd.build_inventory(catalog)
+    assert len(inventory) == 76
+    third = [i for i in inventory if i.third_party]
+    own = [i for i in inventory if not i.third_party]
+    assert len(third) == 27 and len(own) == 49
+    assert all(i.url.startswith("https://") for i in inventory)
+    assert {i.doc_type for i in inventory} <= {"tecnica_quirurgica", "folleto", "catalogo", "otro"}
+    # Las 4 rutas de Corentec, Biotechni, Anton-Hipp e IOT bajo dipromedic.com quedan como enlaces.
+    assert all(i.third_party for i in inventory if any(m in i.url for m in
+                                                      ("/corentec/", "/biotechni/", "/anton-hipp/", "/iot/", "/caleb/")))
+    # Las de Traufix sí son propias, incluida la que ningún producto referencia (catálogo de medicina deportiva).
+    assert not any(i.third_party for i in inventory if "traufix" in i.url or "sports_medicine" in i.url)
+    with SessionLocal() as db:
+        result = cd.ingest_catalog_documents(db, org_id(), None, fetch=False)
+        assert result["linked_external"] == 27 and result["uploaded"] == 0
+        assert len(db.scalars(select(Document).where(Document.third_party.is_(True))).all()) == 27

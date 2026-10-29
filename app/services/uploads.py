@@ -109,8 +109,8 @@ def validate_upload(data: bytes, filename: str, max_bytes: int | None = None) ->
     if len(data) > limit:
         raise AppError(413, "file_too_large", f"El archivo supera el máximo de {limit // (1024 * 1024)} MB.",
                        {"max_bytes": limit})
-    content_type = sniff_content_type(data, filename)
     safe = sanitize_filename(filename)
+    content_type = sniff_content_type(data, safe)
     if not _extension(safe):
         safe += EXTENSIONS[content_type][0]
     return content_type, safe
