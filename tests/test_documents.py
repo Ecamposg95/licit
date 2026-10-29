@@ -617,6 +617,18 @@ def test_missing_local_copy_is_skipped_or_fetched(tmp_path, monkeypatch):
         assert not db.scalars(select(Document).where(Document.external_url == BROCHURE_URL)).all()
 
 
+def test_known_broken_link_is_an_error_not_a_skip(tmp_path):
+    catalog = mini_catalog()
+    for pdf in catalog["pdfs"]:
+        if pdf["url"] == TQ_URL:
+            pdf.update(http_status=404, size_bytes=None, local_path=None)
+    with SessionLocal() as db:
+        result = cd.ingest_catalog_documents(db, org_id(), tmp_path, fetch=False, catalog=catalog)
+        assert {"url": TQ_URL, "reason": "enlace_roto_http_404"} in result["errors"]
+        assert result["skipped"] == 2                                       # catálogo y folleto: sin copia local
+        assert not db.scalars(select(Document).where(Document.external_url == TQ_URL)).all()
+
+
 def test_non_pdf_content_is_reported_not_stored(tmp_path):
     write_local(tmp_path, "traufix.com/TITAN-Humero-Proximal-TQ-048.pdf", b"<html>404 Not Found</html>")
     with SessionLocal() as db:

@@ -208,7 +208,6 @@ def ingest_catalog_documents(db: Session, org_id: str, local_root: Path | None, 
         data = None
         if not entry.third_party:
             if entry.http_status not in (None, 200):
-                result["skipped"] += 1
                 result["errors"].append({"url": entry.url, "reason": f"enlace_roto_http_{entry.http_status}"})
                 continue
             local = _local_file(local_root, entry)

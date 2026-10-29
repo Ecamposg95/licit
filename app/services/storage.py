@@ -1,6 +1,7 @@
 """Almacenamiento de archivos: local en disco o S3 compatible (frente D1), con la misma interfaz."""
 import os
 import uuid
+from functools import lru_cache
 from pathlib import Path
 from typing import Protocol
 
@@ -122,9 +123,15 @@ def get_storage() -> Storage:
     missing = [name for name, value in values.items() if not value]
     if missing:
         raise RuntimeError("Configuración de almacenamiento incompleta; faltan: " + ", ".join(missing))
-    return S3Storage(
-        endpoint=values["OBJECT_STORAGE_ENDPOINT"], bucket=values["OBJECT_STORAGE_BUCKET"],
-        access_key=values["OBJECT_STORAGE_ACCESS_KEY"], secret_key=values["OBJECT_STORAGE_SECRET_KEY"],
-        region=(os.getenv("OBJECT_STORAGE_REGION") or "auto").strip(),
-        addressing_style=(os.getenv("OBJECT_STORAGE_URL_STYLE") or "").strip() or None,
+    return _s3_storage(
+        values["OBJECT_STORAGE_ENDPOINT"], values["OBJECT_STORAGE_BUCKET"], values["OBJECT_STORAGE_ACCESS_KEY"],
+        values["OBJECT_STORAGE_SECRET_KEY"], (os.getenv("OBJECT_STORAGE_REGION") or "auto").strip(),
+        (os.getenv("OBJECT_STORAGE_URL_STYLE") or "").strip() or None,
     )
+
+
+@lru_cache(maxsize=4)
+def _s3_storage(endpoint: str, bucket: str, access_key: str, secret_key: str, region: str,
+                addressing_style: str | None) -> S3Storage:
+    # Crear un cliente de boto3 cuesta decenas de ms; el cliente es seguro entre hilos, así que se reutiliza.
+    return S3Storage(endpoint, bucket, access_key, secret_key, region, addressing_style)
