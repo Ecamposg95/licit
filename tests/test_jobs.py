@@ -1,6 +1,8 @@
 """P0.2: cola de trabajos en la base de datos y endpoint de consulta."""
+import asyncio
 import threading
 import time
+from datetime import timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -11,6 +13,7 @@ from app.core.database import SessionLocal, engine
 from app.core.errors import AppError
 from app.main import app
 from app.models import Job, Organization, User
+from app.models.base import utcnow
 from app.services import jobs
 
 
@@ -157,6 +160,158 @@ def test_idempotency_key_of_other_org_is_not_shared():
                      idempotency_key="compartida")
     assert exc.value.status == 409
     db.close()
+
+
+def test_enqueue_same_key_different_kind_409():
+    db = SessionLocal()
+    first = _enqueue(db, "test.ok", key="misma-clave")
+    db.commit()
+    with pytest.raises(AppError) as exc:
+        _enqueue(db, "test.otro", key="misma-clave")
+    assert exc.value.status == 409 and exc.value.code == "idempotency_conflict"
+    db.rollback()
+    assert _enqueue(db, "test.ok", key="misma-clave").id == first.id      # mismo tipo: sigue devolviendo el mismo
+    assert db.scalar(select(func.count()).select_from(Job)) == 1
+    db.close()
+
+
+def _wait_for(predicate, timeout: float = 10.0) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        time.sleep(0.02)
+    return predicate()
+
+
+@pytest.fixture
+def _clean_worker():
+    yield
+    jobs.stop_worker()
+
+
+def test_start_worker_replaces_thread_stuck_after_stop_timeout(monkeypatch, _clean_worker):
+    entered, release, done = threading.Event(), threading.Event(), threading.Event()
+
+    def blocked(db, job):
+        entered.set()
+        release.wait(20)
+
+    jobs.register("test.bloqueado", blocked)
+    jobs.register("test.rapido", lambda db, job: done.set())
+    monkeypatch.setattr(jobs, "_STOP_TIMEOUT_SECONDS", 0.2)
+    db = SessionLocal()
+    _enqueue(db, "test.bloqueado")
+    db.commit()
+
+    first = jobs.start_worker(poll_seconds=0.02)
+    assert entered.wait(10)
+    jobs.stop_worker()                       # el handler sigue bloqueado: la espera se agota
+    assert first.is_alive()
+
+    second = jobs.start_worker(poll_seconds=0.02)       # el hilo anterior sigue vivo y con la señal de paro
+    _enqueue(db, "test.rapido")
+    db.commit()
+    try:
+        assert second is not first
+        assert done.wait(10), "el worker nuevo no procesó el trabajo"
+    finally:
+        release.set()
+        first.join(10)
+        db.close()
+
+
+def test_start_worker_after_released_stop_runs_new_jobs(monkeypatch, _clean_worker):
+    entered, release, done = threading.Event(), threading.Event(), threading.Event()
+
+    def blocked(db, job):
+        entered.set()
+        release.wait(20)
+
+    jobs.register("test.bloqueado", blocked)
+    jobs.register("test.rapido", lambda db, job: done.set())
+    monkeypatch.setattr(jobs, "_STOP_TIMEOUT_SECONDS", 0.2)
+    db = SessionLocal()
+    _enqueue(db, "test.bloqueado")
+    db.commit()
+
+    jobs.start_worker(poll_seconds=0.02)
+    assert entered.wait(10)
+    jobs.stop_worker()                       # agota la espera con el hilo todavía en el handler
+    release.set()
+    jobs.start_worker(poll_seconds=0.02)     # el hilo anterior termina o está por terminar
+    _enqueue(db, "test.rapido")
+    db.commit()
+    db.close()
+    assert done.wait(10), "el worker no procesó el trabajo tras reiniciarse"
+
+
+def test_recover_stale_jobs():
+    db = SessionLocal()
+    org, user = _context(db)
+    now = utcnow()
+
+    def job(status, started):
+        j = Job(organization_id=org.id, kind="test.ok", payload={}, created_by_id=user.id, status=status,
+                started_at=started, attempts=1)
+        db.add(j)
+        db.flush()
+        return j
+
+    stale = job("running", now - timedelta(minutes=30))
+    recent = job("running", now - timedelta(minutes=1))
+    queued = job("queued", None)
+    done = job("done", now - timedelta(hours=2))
+    db.commit()
+    ids = [stale.id, recent.id, queued.id, done.id]
+
+    assert jobs.recover_stale_jobs(db) == 1
+    assert jobs.recover_stale_jobs(db) == 0                              # ya no queda ninguno
+    db.close()
+
+    db = SessionLocal()
+    stale, recent, queued, done = (db.get(Job, i) for i in ids)
+    assert stale.status == "failed" and stale.finished_at is not None
+    assert stale.error == "Interrumpido: el proceso se reinició antes de terminar"
+    assert [recent.status, queued.status, done.status] == ["running", "queued", "done"]
+    assert recent.error is None and queued.error is None
+    assert jobs.recover_stale_jobs(db, older_than=timedelta(seconds=30)) == 1       # umbral configurable
+    assert db.get(Job, recent.id).status == "failed"
+    db.close()
+
+
+def test_start_worker_recovers_stale_jobs(_clean_worker):
+    db = SessionLocal()
+    org, user = _context(db)
+    stale = Job(organization_id=org.id, kind="test.ok", payload={}, created_by_id=user.id, status="running",
+                started_at=utcnow() - timedelta(hours=1), attempts=1)
+    db.add(stale)
+    db.commit()
+    stale_id = stale.id
+    db.close()
+
+    jobs.start_worker(poll_seconds=0.02)
+    check = SessionLocal()
+    try:
+        assert check.get(Job, stale_id).status == "failed"
+    finally:
+        check.close()
+
+
+def test_lifespan_stops_worker_off_the_event_loop(monkeypatch):
+    seen = {}
+
+    def fake_stop():
+        try:
+            asyncio.get_running_loop()
+            seen["on_loop"] = True
+        except RuntimeError:
+            seen["on_loop"] = False
+
+    monkeypatch.setattr(jobs, "stop_worker", fake_stop)
+    with TestClient(app):
+        pass
+    assert seen == {"on_loop": False}      # stop_worker bloquea hasta 10 s: no puede correr en el event loop
 
 
 def test_worker_runs_with_lifespan_and_stops(monkeypatch):
