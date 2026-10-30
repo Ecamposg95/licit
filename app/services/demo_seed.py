@@ -64,6 +64,9 @@ SOURCES = [
      "notes": "Datos ficticios (SYNTHETIC). Nunca se presentan como resultado de una consulta en vivo."},
 ]
 
+# Cuentas que existen para operar el demo pero no se ofrecen en el selector: TI está fuera del alcance (solo comercial).
+HIDDEN_DEMO_ACCOUNTS = {"ti@dipromedic.example"}
+
 DEMO_USERS = [
     ("direccion@dipromedic.example", "Dirección (demo)", [Role.DIRECCION]),
     ("analista1@dipromedic.example", "Analista comercial 1 (demo)", [Role.ANALISTA_COMERCIAL]),

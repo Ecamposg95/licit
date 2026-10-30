@@ -331,8 +331,8 @@ function Matrix({ matrix }: { matrix: PermissionMatrix }) {
           Roles y permisos
         </h2>
         <p className="mt-0.5 text-xs text-slate-600">
-          Tal como los aplica el servidor en cada petición. Una persona con varios roles suma sus permisos. Dirección y
-          Administrador TI son los roles con acceso a esta vista (<code>audit.read</code>).
+          Tal como los aplica el servidor en cada petición. Una persona con varios roles suma sus permisos. Dirección es el
+          rol con acceso a esta vista (<code>audit.read</code>).
         </p>
       </div>
       <div className="relative overflow-x-auto">

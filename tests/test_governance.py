@@ -310,8 +310,8 @@ def test_demo_accounts_listed_without_secrets(client):
     assert [a["email"] for a in accounts] == [
         "direccion@dipromedic.example", "analista1@dipromedic.example", "analista2@dipromedic.example",
         "analista3@dipromedic.example", "revisor@dipromedic.example", "responsable@dipromedic.example",
-        "ti@dipromedic.example", "presentador@dipromedic.example",
-    ]
+        "presentador@dipromedic.example",
+    ]  # ti existe para operar el demo, pero no se ofrece: TI está fuera del alcance
     for account in accounts:
         assert set(account) == {"email", "full_name", "roles"}
         assert not any("pass" in key.lower() for key in account)

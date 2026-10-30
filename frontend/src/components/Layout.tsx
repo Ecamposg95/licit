@@ -8,7 +8,6 @@ import {
   Package,
   Radar,
   ScrollText,
-  Server,
   Settings2,
   ShieldCheck,
   type LucideProps,
@@ -40,7 +39,6 @@ const NAV: NavItem[] = [
   { to: '/pendientes', label: 'Mis pendientes', icon: ListChecks, permission: 'task.read' },
   { to: '/gobierno', label: 'Gobierno', icon: ShieldCheck, permission: 'audit.read' },
   { to: '/bitacora', label: 'Bitácora', icon: ScrollText, permission: 'audit.read' },
-  { to: '/ti', label: 'TI', icon: Server, permission: ['source.manage', 'audit.read'] },
   { to: '/operacion', label: 'Operación', icon: Settings2 },
 ]
 

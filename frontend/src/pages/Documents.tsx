@@ -65,7 +65,7 @@ export default function Documents() {
             <UnavailableAction
               label="Cargar documento"
               icon={<FileUp aria-hidden="true" className="h-4 w-4" />}
-              reason="Tu rol no tiene el permiso document.upload. Pide a Administración TI que revise tus roles."
+              reason="Tu rol no tiene el permiso document.upload. Pide a quien administra el demo que revise tus roles."
             />
           )
         }

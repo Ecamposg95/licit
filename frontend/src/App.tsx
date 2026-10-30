@@ -13,7 +13,6 @@ import Audit from '@/pages/Audit'
 import Operations from '@/pages/Operations'
 import Panel from '@/pages/Panel'
 import Gobierno from '@/pages/Gobierno'
-import TI from '@/pages/TI'
 
 export default function App() {
   return (
@@ -38,7 +37,6 @@ export default function App() {
         <Route path="/operacion" element={<Operations />} />
         <Route path="/panel" element={<Panel />} />
         <Route path="/gobierno" element={<Gobierno />} />
-        <Route path="/ti" element={<TI />} />
       </Route>
       <Route path="*" element={<Navigate to="/radar" replace />} />
     </Routes>

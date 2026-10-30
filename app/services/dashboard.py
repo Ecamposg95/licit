@@ -1,4 +1,4 @@
-"""Datos del panel de dirección y del estado operativo (TI).
+"""Datos del panel de dirección y del estado operativo del demo.
 
 Regla del panel: los conteos se dan **por tipo de dato** (REAL, HISTORICAL, SYNTHETIC) y jamás se suman entre
 tipos. Un escenario simulado con fecha futura no es una oportunidad real, así que `upcoming_real` solo recibe

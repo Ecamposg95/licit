@@ -107,31 +107,3 @@ export interface DirectionDashboard {
 
 export const getDirectionDashboard = () => http.get<DirectionDashboard>('/dashboard/direccion').then((r) => r.data)
 
-// ── Estado operativo (TI) ────────────────────────────────────────────────────
-
-export interface JobBrief {
-  id: string
-  kind: string
-  status: string
-  progress: number
-  message: string | null
-  error: string | null
-  attempts: number
-  created_at: IsoDateTime
-  started_at: IsoDateTime | null
-  finished_at: IsoDateTime | null
-}
-
-export interface OpsStatus {
-  version: string
-  /** Revisión de Alembic aplicada en la base; null si el esquema no se creó con Alembic. */
-  alembic_head: string | null
-  storage_backend: 's3' | 'local' | 'invalid'
-  storage_error: string | null
-  worker_alive: boolean
-  sources: SourceOut[]
-  jobs: JobBrief[]
-  demo_run: { id: string; started_at: IsoDateTime; actor: UserRef | null; summary: Record<string, unknown> | null } | null
-}
-
-export const getOpsStatus = () => http.get<OpsStatus>('/ops/status').then((r) => r.data)

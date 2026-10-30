@@ -8,7 +8,7 @@ Estado al 2026-10-29 (integración 2 de la demo de reunión, antes del despliegu
 | T01 | Revisar repo, restricciones y accesos | ✅ | ADR-001 a ADR-003, README/CLAUDE.md, accesos a Railway y GitHub |
 | T02 | Base, migraciones y almacenamiento | ✅ | Postgres + Alembic (una sola head, `alembic check` limpio), almacenamiento S3 compatible o disco local con prueba de escritura y lectura (`tests/test_storage.py`). En Railway, el bucket ya existe; sin él el disco es efímero |
 | T03 | Identidad y permisos | ✅ | 5 roles, permisos por recurso en backend, aislamiento por organización, cuentas demo con vencimiento, segregación técnica/comercial y sin autoaprobación |
-| T04 | Flujos y componentes | ✅ | Radar, detalle con pestañas, matriz interactiva, centro documental, catálogo, panel de dirección, gobierno y TI, con estados vacíos y de error |
+| T04 | Flujos y componentes | ✅ | Radar, detalle con pestañas, matriz interactiva, centro documental, catálogo, panel de dirección y gobierno, con estados vacíos y de error |
 | T05 | Modelo y fixtures | ✅ | Semilla reproducible (`stable_id`), REAL/HISTORICAL/SYNTHETIC separados, DEMO-LIC-001 sobre productos reales de Traufix con precios ficticios marcados (ADR-002) |
 | T06 | Acceso real a fuentes | ✅ | Búsqueda real en SIDOF trazable (corrida del 2026-10-29); Compras MX bloqueado y documentado, con carga manual visible. Falta repetir la búsqueda desde la IP de Railway (H4) |
 | T07 | Trabajos asíncronos y adquisición | ✅ | Cola en Postgres con idempotencia, worker en el servicio web, progreso, tiempo límite, reintentos, resultado parcial y recuperación de trabajos atascados |
@@ -23,4 +23,4 @@ Estado al 2026-10-29 (integración 2 de la demo de reunión, antes del despliegu
 | T16 | Despliegue, respaldo y ensayo | 🟡 | Railway con bucket y variables listos; el despliegue del hito 1 espera que se renombren las tablas viejas de producción. Falta desplegar la integración 2, probar respaldo y restauración, y el ensayo |
 | T17 | Búsquedas guardadas y alertas | ⬜ | P1 |
 | T18 | OCR y plantillas adicionales | ⬜ | P1 |
-| T19 | Portales adicionales y ERP | ⬜ | P2. El diagrama de TI muestra Planta y ERP como integración futura |
+| T19 | Portales adicionales y ERP | ⬜ | P2. Fuera del alcance: el demo es solo comercial (decisión del 2026-10-30); se quitaron la vista de TI y el diagrama de planta/ERP |

@@ -103,9 +103,8 @@ si algo cambia, se corrige aquí antes de decirlo en una reunión.
   aplicable; consultas N+1 al leer el expediente; no se puede rechazar una sola evidencia vencida; el reloj demo no es
   configurable.
 - **Borradores (F):** falta una prueba de regresión del orden de bloqueos en Postgres.
-- **Vistas (G):** el texto de error de `/ops/status` no se redacta; textos fijos del diagrama de TI que pueden quedar
-  desactualizados; etiquetas de estado duplicadas; falta «mostrando N de M»; el menú del selector de cuenta no atrapa
-  el foco; alineación de las cajas Planta y ERP; el aviso de cuenta vencida puede aparecer tras un cierre de sesión
+- **Vistas (G):** el texto de error de `/ops/status` (solo por API) no se redacta; etiquetas de estado duplicadas; falta «mostrando N de M»; el menú del selector de cuenta no atrapa
+  el foco; el aviso de cuenta vencida puede aparecer tras un cierre de sesión
   deliberado (caso raro).
 - **Marca (A):** la píldora de fecha puede recortarse a 768 px; el pie va dentro de `<main>`; la fecha del crédito está
   duplicada en el layout y el login; por debajo de 640 px se ocultan el nombre y el rol.

@@ -54,7 +54,7 @@ def is_expired(user, now: datetime | None = None) -> bool:
 
 
 def account_expired_error() -> AppError:
-    return AppError(401, "account_expired", "Esta cuenta de demostración venció. Pide a Administración TI que la renueve.")
+    return AppError(401, "account_expired", "Esta cuenta de demostración venció. Pide a quien administra el demo que la renueve.")
 
 
 def get_current_user(token: str | None = Depends(oauth2_scheme), db: Session = Depends(get_db)):

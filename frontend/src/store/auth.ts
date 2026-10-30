@@ -4,7 +4,7 @@ import type { Me, Meta, Permission } from '@/lib/types'
 import { setDisplayTimeZone } from '@/lib/format'
 
 /** Aviso que ve quien llega a /login porque el backend rechazó su sesión por cuenta demo vencida. */
-export const ACCOUNT_EXPIRED_NOTICE = 'Tu cuenta de demostración venció. Pide a Administración TI que la renueve.'
+export const ACCOUNT_EXPIRED_NOTICE = 'Tu cuenta de demostración venció. Pide a quien administra el demo que la renueve.'
 
 interface AuthState {
   token: string | null

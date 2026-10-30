@@ -21,7 +21,7 @@ from app.schemas.governance import (
 )
 from app.schemas.v1 import OpportunityRow, UserRef
 from app.services import audit, dashboard, search_runs
-from app.services.demo_seed import DEMO_USERS, current_demo_run_id
+from app.services.demo_seed import DEMO_USERS, HIDDEN_DEMO_ACCOUNTS, current_demo_run_id
 
 router = APIRouter(prefix="/api/v1", tags=["gobierno"])
 
@@ -240,7 +240,7 @@ def demo_accounts(db: Session = Depends(get_db)):
         raise AppError(404, "not_found", "Ruta no encontrada")
     users = [u for u in db.scalars(select(User).where(User.is_active.is_(True),
                                                       User.email.like(f"%{DEMO_EMAIL_DOMAIN}")))
-             if not is_expired(u)]
+             if not is_expired(u) and u.email not in HIDDEN_DEMO_ACCOUNTS]
     order = {email: i for i, (email, *_rest) in enumerate(DEMO_USERS)}
     users.sort(key=lambda u: (order.get(u.email, len(order)), u.email))
     return [DemoAccount(email=u.email, full_name=u.full_name,
@@ -265,7 +265,7 @@ def direction_dashboard(db: Session = Depends(get_db),
     )
 
 
-# ── Estado operativo (TI) ────────────────────────────────────────────────────
+# ── Estado operativo (operación del demo; sin vista en la interfaz) ────────────────────────────────────────────────────
 
 def require_any_permission(*perms: Perm):
     def checker(user: User = Depends(get_current_user)):

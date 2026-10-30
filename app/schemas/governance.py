@@ -134,7 +134,7 @@ class DirectionDashboard(BaseModel):
     scenarios_at_risk: list[ScenarioAtRisk]
 
 
-# ── Estado operativo (TI) ────────────────────────────────────────────────────
+# ── Estado operativo (operación del demo; sin vista en la interfaz) ────────────────────────────────────────────────────
 
 class JobBrief(ORM):
     id: str

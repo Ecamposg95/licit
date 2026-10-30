@@ -481,7 +481,7 @@ export default function ExpedienteTab({ opportunityId }: { opportunityId: string
             {job?.status === 'failed' && (
               <div role="alert" className="mt-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
                 <p className="font-medium">
-                  No se pudo generar el expediente. Intenta de nuevo; si persiste, avisa a TI.
+                  No se pudo generar el expediente. Intenta de nuevo; si persiste, avisa a quien administra el demo.
                 </p>
                 <p className="mt-0.5 text-xs text-red-800/80">No se creó ningún borrador.</p>
                 {job.error && (
