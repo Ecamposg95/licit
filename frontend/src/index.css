@@ -1,0 +1,113 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    font-size: 15px;
+  }
+  body {
+    background-color: theme('colors.canvas');
+  }
+  :focus-visible {
+    outline: 2px solid theme('colors.dpm.blue.DEFAULT');
+    outline-offset: 2px;
+  }
+  /* Superficies navy (barra superior, panel del login): el contorno de foco pasa a blanco. */
+  .surface-dark :focus-visible {
+    outline-color: theme('colors.white');
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@layer components {
+  .input {
+    @apply w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-dpm-blue focus:outline-none focus:ring-1 focus:ring-dpm-blue disabled:bg-slate-100;
+  }
+  .label {
+    @apply mb-1 block text-xs font-medium text-slate-600;
+  }
+  /* Botones en pastilla y peso 600, como los del sitio de Dipromedic. */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  /* Acción principal: azul corporativo con texto blanco (4.89:1). */
+  .btn-primary {
+    @apply btn bg-dpm-blue text-white shadow-sm hover:bg-dpm-blue-700 active:bg-dpm-blue-800;
+  }
+  /* Acento: degradado verde del sitio con texto navy (5.70:1 en el extremo oscuro). Nunca texto blanco. */
+  .btn-accent {
+    @apply btn bg-dpm-accent text-dpm-navy shadow-sm hover:brightness-95 active:brightness-90;
+  }
+  .btn-secondary {
+    @apply btn border border-slate-300 bg-white text-slate-700 hover:border-dpm-blue-300 hover:bg-dpm-blue-50 hover:text-dpm-blue-800;
+  }
+  .btn-danger {
+    @apply btn bg-red-700 text-white hover:bg-red-800;
+  }
+  .btn-ghost {
+    @apply btn px-2.5 font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900;
+  }
+  /* Acción no disponible en esta entrega: enfocable para leer el motivo, sin efecto. */
+  .btn-unavailable {
+    @apply btn cursor-not-allowed border border-dashed border-slate-300 bg-white font-medium text-slate-400;
+  }
+  /* Enlace de texto en azul (6.73:1 sobre blanco, 5.46:1 sobre el tinte 100). */
+  .link {
+    @apply font-medium text-dpm-blue-700 underline-offset-2 hover:text-dpm-blue-800 hover:underline;
+  }
+  /* Subrayado verde de los títulos de sección del sitio (90×5 px), a escala de aplicación. */
+  .brand-rule {
+    @apply block h-1 w-14 rounded-full bg-dpm-accent;
+  }
+  .card {
+    @apply rounded-lg border border-slate-200 bg-white;
+  }
+  .table-base {
+    @apply w-full border-collapse text-left text-sm;
+  }
+  .table-base thead th {
+    @apply whitespace-nowrap border-b border-slate-200 bg-slate-50 px-4 py-2.5 text-xs font-semibold text-slate-600;
+  }
+  .table-base tbody td {
+    @apply border-b border-slate-100 px-4 py-3 align-top;
+  }
+  .table-base tbody tr:last-child td {
+    @apply border-b-0;
+  }
+  .table-compact thead th,
+  .table-compact tbody td,
+  .table-compact tbody th {
+    @apply px-3;
+  }
+  .table-compact thead th:first-child,
+  .table-compact tbody td:first-child {
+    @apply pl-4;
+  }
+  .muted {
+    @apply text-slate-500;
+  }
+  /* Rayado de "dato ficticio": misma textura en filas, insignias y avisos SYNTHETIC. */
+  .hatch-synthetic {
+    background-image: repeating-linear-gradient(
+      -45deg,
+      theme('colors.amber.400') 0 3px,
+      theme('colors.amber.100') 3px 7px
+    );
+  }
+  .hatch-synthetic-soft {
+    background-image: repeating-linear-gradient(
+      -45deg,
+      theme('colors.amber.100') 0 6px,
+      theme('colors.amber.50') 6px 12px
+    );
+  }
+}

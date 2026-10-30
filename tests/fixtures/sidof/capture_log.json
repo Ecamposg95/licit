@@ -1,0 +1,108 @@
+[
+ {
+  "file": "search_osteosintesis_2026.json",
+  "method": "POST",
+  "url": "https://sidof.segob.gob.mx/busqueda/CargaNotasAvanzadas/",
+  "status": 200,
+  "bytes": 53220,
+  "seconds": 1.8,
+  "form": {
+   "draw": "1",
+   "columns[0][data]": "fecha",
+   "columns[1][data]": "titulo",
+   "columns[2][data]": "codOrgaUno",
+   "columns[3][data]": "codOrgaDos",
+   "order[0][column]": "0",
+   "order[0][dir]": "desc",
+   "start": "0",
+   "length": "100",
+   "tipoBus": "C",
+   "textoBus": "osteosintesis",
+   "fechaIni": "01-01-2026",
+   "fechaFin": "29-10-2026",
+   "idOrg": "TODOS",
+   "codNotas": "",
+   "sinonimos": "false",
+   "tipoTexto": "Y"
+  },
+  "captured_at": "2026-10-29T15:36:43+00:00"
+ },
+ {
+  "file": "nota_5801639.json",
+  "method": "GET",
+  "url": "https://sidof.segob.gob.mx/dof/sidof/notas/nota/5801639",
+  "status": 200,
+  "bytes": 8577,
+  "seconds": 0.14,
+  "form": null,
+  "captured_at": "2026-10-29T15:36:44+00:00"
+ },
+ {
+  "file": "nota_5797331.json",
+  "method": "GET",
+  "url": "https://sidof.segob.gob.mx/dof/sidof/notas/nota/5797331",
+  "status": 200,
+  "bytes": 8329,
+  "seconds": 0.13,
+  "form": null,
+  "captured_at": "2026-10-29T15:36:45+00:00"
+ },
+ {
+  "file": "search_zero.json",
+  "method": "POST",
+  "url": "https://sidof.segob.gob.mx/busqueda/CargaNotasAvanzadas/",
+  "status": 200,
+  "bytes": 383,
+  "seconds": 0.15,
+  "form": {
+   "draw": "1",
+   "columns[0][data]": "fecha",
+   "columns[1][data]": "titulo",
+   "columns[2][data]": "codOrgaUno",
+   "columns[3][data]": "codOrgaDos",
+   "order[0][column]": "0",
+   "order[0][dir]": "desc",
+   "start": "0",
+   "length": "100",
+   "tipoBus": "C",
+   "textoBus": "zzzxqv",
+   "fechaIni": "01-01-2026",
+   "fechaFin": "29-10-2026",
+   "idOrg": "TODOS",
+   "codNotas": "",
+   "sinonimos": "false",
+   "tipoTexto": "Y"
+  },
+  "captured_at": "2026-10-29T15:36:46+00:00"
+ },
+ {
+  "file": "nota_5800141.json",
+  "method": "GET",
+  "url": "https://sidof.segob.gob.mx/dof/sidof/notas/nota/5800141",
+  "status": 200,
+  "bytes": 69906,
+  "seconds": 0.28,
+  "form": null,
+  "captured_at": "2026-10-29T15:39:21+00:00"
+ },
+ {
+  "file": "nota_5800121.json",
+  "method": "GET",
+  "url": "https://sidof.segob.gob.mx/dof/sidof/notas/nota/5800121",
+  "status": 200,
+  "bytes": 6494,
+  "seconds": 0.1,
+  "form": null,
+  "captured_at": "2026-10-29T15:39:22+00:00"
+ },
+ {
+  "file": "nota_5799326.json",
+  "method": "GET",
+  "url": "https://sidof.segob.gob.mx/dof/sidof/notas/nota/5799326",
+  "status": 200,
+  "bytes": 9713,
+  "seconds": 0.27,
+  "form": null,
+  "captured_at": "2026-10-29T15:39:23+00:00"
+ }
+]
