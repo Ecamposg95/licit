@@ -38,7 +38,8 @@ cd frontend && npm install && npm run dev      # :5173 (proxy /api → :8000)
 cd frontend && npm run build                   # tsc && vite build
 docker compose up -d                           # postgres:17 local
 ```
-Usuarios demo (`@dipromedic.example`): direccion, analista1..3, revisor, responsable, ti y presentador (todos los roles).
+Usuarios demo (`@dipromedic.example`): direccion, analista1..3, revisor, responsable y presentador (todos los roles).
+`ti` (admin_ti) existe solo para operar el demo; TI y planta están fuera del alcance (solo comercial).
 
 ## Deploy (Railway)
 Proyecto `licit-dipromedic` (workspace Atlas Tech) · servicios `web` + `Postgres` · https://web-production-9afcc.up.railway.app

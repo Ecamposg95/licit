@@ -11,7 +11,6 @@ const DEMO_ACCOUNTS = [
   'analista1',
   'revisor',
   'responsable',
-  'ti',
 ]
 
 export default function Login() {

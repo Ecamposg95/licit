@@ -76,8 +76,8 @@ export function Forbidden({ permission }: { permission: string }) {
   return (
     <div className="card">
       <EmptyState title="Tu rol no tiene acceso a esta sección" icon={<Lock className="h-8 w-8" strokeWidth={1.5} />}>
-        Se requiere el permiso <code className="rounded bg-slate-100 px-1">{permission}</code>. Pide a Administración TI que
-        revise tus roles.
+        Se requiere el permiso <code className="rounded bg-slate-100 px-1">{permission}</code>. Pide a quien administra el
+        demo que revise tus roles.
       </EmptyState>
     </div>
   )

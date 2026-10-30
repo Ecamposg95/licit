@@ -63,7 +63,7 @@ y su `frontend/node_modules` con `npm ci`.
 | D | `app/services/storage.py` (solo la parte S3), `app/services/uploads.py`, `app/services/demo_documents.py`, `app/routers/documents.py`, `scripts/ingest_catalog_documents.py`, `frontend/src/pages/Documents.tsx`, `frontend/src/pages/documents/*`, `frontend/src/lib/api-documents.ts`, `tests/test_documents.py` | |
 | E | `app/services/matching.py`, `app/services/affinity.py`, `app/services/review.py`, `app/services/workspace.py`, `app/routers/workspaces.py`, `app/fixtures/escenarios_demo.json`, `frontend/src/pages/opportunity/*`, `frontend/src/lib/api-workspace.ts`, `tests/test_matching.py`, `tests/test_review.py`, `tests/test_workspace.py` | |
 | F | `app/services/generation/*`, `app/routers/artifacts.py`, `frontend/src/pages/opportunity/ExpedienteTab.tsx`, `frontend/src/lib/api-artifacts.ts`, `tests/test_generation.py` | |
-| G | `app/routers/governance.py`, `app/services/dashboard.py`, `frontend/src/pages/Panel.tsx`, `frontend/src/pages/Gobierno.tsx`, `frontend/src/pages/TI.tsx`, `frontend/src/components/AccountSwitcher.tsx`, `frontend/src/lib/api-governance.ts`, `tests/test_governance.py` | `Layout.tsx` (A monta el switcher en la integración) |
+| G | `app/routers/governance.py`, `app/services/dashboard.py`, `frontend/src/pages/Panel.tsx`, `frontend/src/pages/Gobierno.tsx`, `frontend/src/components/AccountSwitcher.tsx`, `frontend/src/lib/api-governance.ts`, `tests/test_governance.py` | `Layout.tsx` (A monta el switcher en la integración) |
 | Integrador | `app/main.py` (registro de routers), `frontend/src/App.tsx`, el arreglo `NAV` de `Layout.tsx`, `alembic/versions/*`, `app/models/*`, `requirements.txt`, `CLAUDE.md`, `docs/*.md` | |
 
 Regla: si un frente necesita una columna o tabla nueva, **no** escribe migraciones. La pide al integrador, que la agrega en
@@ -761,35 +761,32 @@ una migración de integración.
 - [ ] **Step 2:** FAIL → implementar → PASS.
 - [ ] **Step 3: Commit** `feat(gobierno): cambio de cuenta demo y vencimiento de cuentas`.
 
-### Task G3: Datos para dirección y TI
+### Task G3: Datos para dirección
 
 **Files:** Create `app/services/dashboard.py`. Modify `app/routers/governance.py`. Test: `tests/test_governance.py`.
 
 **Interfaces:**
 - Produces:
   - `GET /api/v1/dashboard/direccion` (requiere `opportunity.read`) → `{by_data_kind: {REAL: {total, por_estado: {...}}, HISTORICAL: {...}, SYNTHETIC: {...}}, upcoming_real: [OpportunityRow] (abierta_verificada, ordenadas por fecha), last_search: SearchRun | None, scenarios_at_risk: [{external_id, blocking: [...], data_kind: "SYNTHETIC"}]}`. Los conteos nunca se suman entre tipos de dato.
-  - `GET /api/v1/ops/status` (requiere `source.manage` o `audit.read`) → `{version: commit, alembic_head, storage_backend: "s3" | "local", worker_alive: bool, sources: [SourceOut], jobs: [últimos 20], demo_run}`.
 
 - [ ] **Step 1: Write failing tests:**
   - `test_dashboard_never_mixes_kinds`: no existe ninguna clave `total` en la raíz y `SYNTHETIC` va separado.
   - `test_upcoming_real_excludes_synthetic_future`.
-  - `test_ops_status_for_ti`.
 - [ ] **Step 2:** FAIL → implementar → PASS.
-- [ ] **Step 3: Commit** `feat(vistas): datos de panel de dirección y estado operativo`.
+- [ ] **Step 3: Commit** `feat(vistas): datos del panel de dirección`.
 
-### Task G4: Páginas Panel, Gobierno, TI y selector de cuenta
+### Task G4: Páginas Panel, Gobierno y selector de cuenta
 
-**Files:** Create `frontend/src/pages/Panel.tsx`, `frontend/src/pages/Gobierno.tsx`, `frontend/src/pages/TI.tsx`, `frontend/src/components/AccountSwitcher.tsx`, `frontend/src/lib/api-governance.ts`.
+**Files:** Create `frontend/src/pages/Panel.tsx`, `frontend/src/pages/Gobierno.tsx`, `frontend/src/components/AccountSwitcher.tsx`, `frontend/src/lib/api-governance.ts`.
 
 **Interfaces:**
 - Produces:
   - **`/panel`** (Dirección): tres columnas por tipo de dato con sus conteos (nunca un total combinado), próximas oportunidades reales verificadas (o «No hay oportunidades reales abiertas verificadas en este momento»), última búsqueda y escenarios simulados en riesgo con rayado. Sin gráficas sin datos.
   - **`/gobierno`**: botón «Verificar integridad de la bitácora» con resultado y hora, matriz de roles × permisos con ✓/— y texto, tabla de decisiones y aprobaciones (quién, rol, cuándo, motivo) y selector de corrida demo.
-  - **`/ti`**: un SVG en línea con los módulos de identidad, catálogo, oportunidades, documentos, requisitos, revisión, generación, auditoría y trabajos, más Postgres y el bucket, y en línea punteada «Planta (integración futura)» y «ERP (integración futura)» sin botones. Debajo, salud de fuentes, trabajos recientes, versión desplegada y backend de almacenamiento.
   - **`<AccountSwitcher/>`**: menú con las cuentas demo y sus roles. Al elegir una, abre un modal de inicio de sesión con el correo ya escrito. Si el login funciona, reemplaza la sesión, recarga `me` y `meta` y navega a la misma ruta. A lo monta en `#account-switcher-slot` durante la integración.
 
-- [ ] **Step 1:** implementar, `npm run build` y verificación visual de las tres páginas y del cambio de cuenta.
-- [ ] **Step 2: Commit** `feat(vistas): panel de dirección, gobierno corporativo, TI y selector de cuenta`.
+- [ ] **Step 1:** implementar, `npm run build` y verificación visual de las dos páginas y del cambio de cuenta.
+- [ ] **Step 2: Commit** `feat(vistas): panel de dirección, gobierno corporativo y selector de cuenta`.
 
 ---
 
@@ -798,8 +795,8 @@ una migración de integración.
 ### Task H1: Unir la oleada 2
 
 - [ ] **Step 1:** fusionar `ws/e-motor`, `ws/f-generacion` y `ws/g-vistas`.
-- [ ] **Step 2:** registrar los routers (workspaces, artifacts, governance) y las rutas `/panel`, `/gobierno` y `/ti`.
-- [ ] **Step 3:** agregar al `NAV` del Layout, en este orden: Panel, Radar, Catálogo, Centro documental, Mis pendientes, Gobierno, Bitácora, TI y Operación.
+- [ ] **Step 2:** registrar los routers (workspaces, artifacts, governance) y las rutas `/panel` y `/gobierno`.
+- [ ] **Step 3:** agregar al `NAV` del Layout, en este orden: Panel, Radar, Catálogo, Centro documental, Mis pendientes, Gobierno, Bitácora y Operación.
 - [ ] **Step 4:** montar `<AccountSwitcher/>`, agregar la pestaña Expediente al detalle y conectar `RequirementRow.assessment`.
 - [ ] **Step 5:** correr la suite completa (SQLite y Postgres), `npm run build` y `alembic check`.
 
@@ -828,7 +825,7 @@ una migración de integración.
 
 **Files:** Create `docs/GUION_DEMO.md`. Modify `docs/LIMITACIONES.md`, `docs/BACKLOG.md`, `CLAUDE.md`.
 
-- [ ] **Step 1:** escribir `GUION_DEMO.md`: los 10 pasos del §4 con la cuenta de cada paso (presentador → analista1 → revisor → responsable), qué decir a cada asistente (Gobierno, Comercial y TI), el tiempo por paso para sumar 10–12 min, el plan B (laptop y luego importación manual) y la lista de verificación previa (reinicio, búsqueda real hecha esa mañana, verificación de integridad en verde).
+- [ ] **Step 1:** escribir `GUION_DEMO.md`: los 10 pasos del §4 con la cuenta de cada paso (presentador → analista1 → revisor → responsable), qué decir a cada asistente (Gobierno corporativo y Comercial), el tiempo por paso para sumar 10–12 min, el plan B (laptop y luego importación manual) y la lista de verificación previa (reinicio, búsqueda real hecha esa mañana, verificación de integridad en verde).
 - [ ] **Step 2:** actualizar `LIMITACIONES.md` (fuentes probadas desde Railway, Compras MX bloqueado, sin IA, SIDOF no documentado, aviso legal del DOF y certificaciones no verificadas) y el `BACKLOG.md`.
 - [ ] **Step 3: Commit** `docs: guion de la demo, limitaciones y backlog`.
 

@@ -149,56 +149,6 @@ function DemoReset() {
   )
 }
 
-const MODULES: { name: string; status: string; current: boolean }[] = [
-  { name: 'Identidad y permisos por rol', status: 'Disponible', current: true },
-  { name: 'Oportunidades y radar', status: 'Disponible: consulta, responsable y notas', current: true },
-  { name: 'Catálogo', status: 'Disponible: consulta', current: true },
-  { name: 'Documentos', status: 'Disponible: metadatos', current: true },
-  { name: 'Requisitos y matriz', status: 'Disponible: consulta', current: true },
-  { name: 'Auditoría', status: 'Disponible', current: true },
-  { name: 'Búsqueda e importación desde fuentes oficiales', status: 'Próxima entrega (E2)', current: false },
-  { name: 'Revisión y motor de correspondencia', status: 'Próxima entrega (E3)', current: false },
-  { name: 'Generación de expediente y paquete ZIP', status: 'Próxima entrega (E3)', current: false },
-]
-
-function Architecture() {
-  return (
-    <section aria-labelledby="arquitectura" className="card">
-      <h2 id="arquitectura" className="border-b border-slate-200 px-4 py-3 font-semibold text-slate-900">
-        Arquitectura
-      </h2>
-      <div className="grid gap-6 px-4 py-4 lg:grid-cols-2">
-        <div>
-          <p className="text-sm text-slate-700">
-            Monolito modular: el navegador llama a una API autenticada; la API valida permisos, guarda estados y relaciones en
-            PostgreSQL y registra cada cambio sensible en la bitácora. Las consultas a portales se harán desde el servidor,
-            nunca desde el navegador.
-          </p>
-          <h3 className="mt-4 text-sm font-semibold text-slate-800">Módulos</h3>
-          <ul className="mt-2 divide-y divide-slate-100 text-sm">
-            {MODULES.map((m) => (
-              <li key={m.name} className="flex items-center justify-between gap-3 py-2">
-                <span className="text-slate-800">{m.name}</span>
-                <span className={`shrink-0 text-xs ${m.current ? 'text-emerald-800' : 'text-slate-500'}`}>{m.status}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-        <div className="rounded-md border border-dashed border-slate-300 bg-slate-50 px-4 py-4">
-          <h3 className="text-sm font-semibold text-slate-800">Planta y ERP</h3>
-          <p className="mt-0.5 text-xs font-medium text-slate-500">Integración futura, no construida</p>
-          <ul className="mt-3 list-disc space-y-1.5 pl-5 text-sm text-slate-700">
-            <li>Compartir identidad y referencias de producto cuando estén homologadas.</li>
-            <li>Consultar disponibilidad aprobada y capacidad de entrega como datos de origen confirmado.</li>
-            <li>Hoy, existencias y capacidades del demo son simuladas y no afirman disponibilidad real.</li>
-            <li>Se diseñará al conocer el sistema fuente y sus reglas.</li>
-          </ul>
-        </div>
-      </div>
-    </section>
-  )
-}
-
 export default function Operations() {
   const canReset = useCan('demo.reset')
   return (
@@ -214,7 +164,6 @@ export default function Operations() {
         <SourcesTable />
       </section>
       {canReset && <DemoReset />}
-      <Architecture />
     </div>
   )
 }
