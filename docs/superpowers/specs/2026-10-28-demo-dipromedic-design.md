@@ -8,15 +8,14 @@ investigaciones en `docs/research/`.
 
 ## 1. Intención y por qué
 
-La demo se presenta en una reunión con tres personas de Dipromedic:
+La demo se presenta en una reunión con el área comercial de Dipromedic y su gobierno corporativo:
 
 | Asistente | Lo que necesita ver *(lectura del equipo, confirmada por Emmanuel)* |
 |---|---|
 | Gerente de Gobierno Corporativo | Control: quién aprueba qué, separación de funciones, bitácora inmutable, que nada se presente sin revisión humana y que el sistema no invente firmas, registros ni cumplimiento |
 | Director Comercial | Encontrar oportunidades reales a tiempo, contrastarlas con **sus** productos, ver faltantes y salir con un expediente borrador descargable |
-| Dirección de TI | Arquitectura limpia, seguridad, operación (fuentes, trabajos, despliegue, respaldo), integración futura con planta/ERP, sin ataduras |
 
-Éxito: los tres salen dispuestos a validar el alcance de la fase 1 del dossier (designar responsables, habilitar el
+Éxito: los asistentes salen dispuestos a validar el alcance de la fase 1 del dossier (designar responsables, habilitar el
 diagnóstico). «Vistoso», en palabras de Emmanuel, significa **profesional, funcional y con el branding de Dipromedic**.
 
 ## 2. Metas
@@ -43,8 +42,6 @@ diagnóstico). «Vistoso», en palabras de Emmanuel, significa **profesional, fu
    - **Panel de dirección:** cartera, riesgos y avance, contando solo datos reales y separados por tipo de dato.
      Sin KPIs ni ahorros inventados.
    - **Gobierno corporativo:** bitácora filtrable, matriz de roles y permisos visible, y quién aprobó cada requisito.
-   - **TI:** diagrama de arquitectura, salud de las fuentes, cola de trabajos, versión desplegada e integración
-     futura con planta/ERP, solo como texto.
 7. **Guion de 10–12 minutos** que recorre los 10 pasos del pack §4 en orden. Se incluye reinicio del demo y un ensayo
    con datos reiniciados.
 
@@ -67,7 +64,6 @@ alcanza, se recorta en el orden de la columna «Recorte», del 1 al último.
 | Plantillas P0 (6) + ZIP con manifiesto (meta 5) | Sí | 4: si falta tiempo, se fusionan matriz, faltantes e índice en un solo DOCX |
 | Plantillas P1 (cartas, cuadro de preguntas) | No | — |
 | Panel de dirección y vista de gobierno corporativo (meta 6) | Sí | — |
-| Vista de TI (meta 6) | Sí, en versión ligera (arquitectura + salud de fuentes + trabajos) | 5 (última) |
 | Cambio rápido de cuenta demo | Sí | — |
 | Guion, reinicio y ensayo (meta 7) | Sí | — |
 
@@ -107,7 +103,8 @@ alcanza, se recorta en el orden de la columna «Recorte», del 1 al último.
 
 ## 3. No-metas
 
-Módulo de planta; envío a portales, firma o presentación de ofertas; IA o LLM (decisión de Emmanuel: la extracción es
+Las áreas de TI y planta (decisión de Emmanuel del 2026-10-30: el demo se enfoca solo en comercial; no hay vista de TI,
+ni diagrama de arquitectura, ni integración con planta o ERP, ni siquiera como texto); envío a portales, firma o presentación de ofertas; IA o LLM (decisión de Emmanuel: la extracción es
 manual o por reglas, con página y fragmento); multiempresa comercial; precios o existencias reales; app móvil.
 
 ## 4. Anti-metas (fallaría aunque funcione)
@@ -234,8 +231,8 @@ Consecuencias para el diseño:
 5. **Trabajos asíncronos.** Para esta semana corre un worker dentro del servicio `web`, en un hilo de fondo, que lee
    una tabla de trabajos en Postgres con `SKIP LOCKED`. Separarlo en un servicio `worker` queda como evolución en
    ADR-001; el contrato es el mismo.
-6. **Vista de gobierno corporativo:** la ven Dirección y Administrador TI (permiso `audit.read`). No se crea un rol
-   nuevo.
+6. **Vista de gobierno corporativo:** la ve Dirección (permiso `audit.read`). No se crea un rol nuevo. El rol
+   `admin_ti` sigue en el backend solo para reiniciar el demo y operar fuentes, pero no aparece en la demo.
 7. **Licencia de reutilización:** las fichas importadas y el pie de página llevan el crédito «DIPROMEDIC S.A. DE C.V. ·
    www.dipromedic.com» y la fecha de consulta. El contenido del DOF se cita y se enlaza a la nota oficial, sin
    republicar el texto completo.

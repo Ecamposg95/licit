@@ -33,4 +33,5 @@ pero migraciones idempotentes sin Alembic y despliegue en Railway).
 - Cambios de esquema: `alembic revision --autogenerate`, revisar el archivo y probar `upgrade`/`downgrade`.
   Las pruebas verifican el ciclo completo en SQLite y la suite corre contra Postgres con `TEST_DATABASE_URL`.
 - `railway up` no debe ejecutarse desde `/mnt/c` (el CLI sube bytes nulos); ver CLAUDE.md.
-- Planta y ERP sólo aparecen como integración futura en la arquitectura; no hay botones que simulen esas funciones.
+- TI y planta quedan fuera del alcance del demo (decisión del 2026-10-30): no hay vista de arquitectura ni
+  integración con planta o ERP. El rol `admin_ti` existe solo para operar el demo (reinicio y fuentes).

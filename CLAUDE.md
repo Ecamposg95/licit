@@ -41,7 +41,8 @@ docker compose up -d                           # postgres:17 local
 ```
 `IMPORT_CATALOG=1` (el valor por defecto) hace que `bootstrap.py` importe el catálogo real de Dipromedic/Traufix en el primer
 arranque; con `IMPORT_CATALOG=0` se omite. `JOBS_WORKER=1` corre el worker de la búsqueda en vivo dentro del servicio web.
-Usuarios demo (`@dipromedic.example`): direccion, analista1..3, revisor, responsable, ti y presentador (todos los roles).
+Usuarios demo (`@dipromedic.example`): direccion, analista1..3, revisor, responsable y presentador (todos los roles).
+`ti` (admin_ti) existe solo para operar el demo; TI y planta están fuera del alcance (solo comercial).
 
 ## Módulos de la demo de reunión (plan `docs/superpowers/plans/2026-10-29-demo-reunion-dipromedic.md`)
 - **Fuentes y búsqueda:** `app/sources/sidof.py` (adaptador SIDOF), `app/core/netguard.py` (SSRF), `app/services/search_runs.py`
@@ -52,8 +53,8 @@ Usuarios demo (`@dipromedic.example`): direccion, analista1..3, revisor, respons
   `workspace.py` (único get-or-create del expediente, decisión, aprobaciones segregadas, compuerta), `app/routers/workspaces.py`;
   interfaz en `frontend/src/pages/opportunity/*`.
 - **Borradores:** `app/services/generation/*` (instantánea, seis DOCX, ZIP con manifiesto) y `app/routers/artifacts.py`.
-- **Gobierno y vistas:** `app/routers/governance.py` (integridad, permisos, aprobaciones, panel, `/ops/status`),
-  `app/services/dashboard.py`; páginas `Panel`, `Gobierno`, `TI` y `components/AccountSwitcher.tsx`.
+- **Gobierno y vistas:** `app/routers/governance.py` (integridad, permisos, aprobaciones, panel),
+  `app/services/dashboard.py`; páginas `Panel`, `Gobierno` y `components/AccountSwitcher.tsx`.
 - Trabajos asíncronos: `app/services/jobs.py` (cola en Postgres; `JOBS_WORKER=1` la atiende dentro del servicio web).
 - Etiquetas en español de la interfaz: `frontend/src/lib/labels.ts` (resultados del motor, fases, decisiones, acciones de bitácora).
 - Casos negativos del pack §16: `tests/test_negative.py`. Guion de la reunión: `docs/GUION_DEMO.md`.
