@@ -146,7 +146,7 @@ export default function UploadDialog({ open, onClose, onUploaded, documentId, do
         e.preventDefault()
         if (!busy) onClose()
       }}
-      className="w-[min(36rem,calc(100vw-2rem))] rounded-xl border border-slate-200 p-0 text-slate-900 shadow-2xl backdrop:bg-slate-900/40"
+      className="w-[min(36rem,calc(100vw-2rem))] rounded-xl border border-slate-200 bg-surface p-0 text-slate-900 shadow-2xl backdrop:bg-ink/50"
     >
       <form onSubmit={submit} noValidate>
         <div className="space-y-4 p-6">
@@ -267,7 +267,7 @@ export default function UploadDialog({ open, onClose, onUploaded, documentId, do
                     <label
                       key={k.value}
                       className={`flex cursor-pointer items-start gap-2 rounded-md border p-2.5 text-sm ${
-                        dataKind === k.value ? 'border-dpm-blue bg-dpm-blue-50' : 'border-slate-300 bg-white'
+                        dataKind === k.value ? 'border-dpm-blue bg-dpm-blue-50' : 'border-slate-300 bg-surface'
                       }`}
                     >
                       <input

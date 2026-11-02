@@ -35,7 +35,7 @@ export default function SearchRunsPanel({ refreshKey = 0 }: { refreshKey?: numbe
   const runs = useApi(listSearchRuns, [refreshKey])
   const items = runs.data ?? []
   return (
-    <details className="group rounded-lg border border-slate-200 bg-white">
+    <details className="group rounded-lg border border-slate-200 bg-surface">
       <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-2.5 text-sm font-medium text-slate-800 hover:bg-slate-50">
         <History aria-hidden="true" className="h-4 w-4 text-slate-500" />
         Historial de búsquedas

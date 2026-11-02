@@ -140,7 +140,7 @@ export default function ReviewDialog({ open, requirement: r, onClose, onReviewed
                 <label
                   key={d.value}
                   className={`flex cursor-pointer items-start gap-2 rounded-md border p-2 text-sm ${
-                    decision === d.value ? 'border-dpm-blue bg-dpm-blue-50' : 'border-slate-300 bg-white'
+                    decision === d.value ? 'border-dpm-blue bg-dpm-blue-50' : 'border-slate-300 bg-surface'
                   }`}
                 >
                   <input

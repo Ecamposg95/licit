@@ -13,6 +13,7 @@ import {
   type LucideProps,
 } from 'lucide-react'
 import AccountSwitcher from '@/components/AccountSwitcher'
+import ThemeToggle from '@/components/ThemeToggle'
 import Tooltip from '@/components/Tooltip'
 import { DataKindBadge } from '@/components/badges'
 import Footer from '@/components/brand/Footer'
@@ -55,7 +56,7 @@ function TopBar() {
   const extra = roleLabels.length - 1
 
   return (
-    <header className="surface-dark sticky top-0 z-30 flex h-14 items-center gap-2 bg-dpm-navy px-3 text-white sm:gap-4 sm:px-5">
+    <header className="surface-dark sticky top-0 z-30 flex h-14 items-center gap-2 bg-dpm-navy px-3 text-white sm:gap-4 sm:px-5 dark:border-b dark:border-white/10">
       <Link to="/radar" className="flex shrink-0 items-center gap-3 rounded-md py-1">
         <Logo variant="white" className="h-9" />
         <span aria-hidden="true" className="hidden h-6 w-px bg-white/25 sm:block" />
@@ -103,6 +104,7 @@ function TopBar() {
             </div>
           )}
           <span aria-hidden="true" className="hidden h-6 w-px bg-white/15 sm:block" />
+          <ThemeToggle />
           <button
             type="button"
             onClick={logout}
@@ -126,7 +128,7 @@ function Sidebar() {
   return (
     <nav
       aria-label="Navegación principal"
-      className="sticky top-14 flex h-[calc(100vh-3.5rem)] w-16 shrink-0 flex-col border-r border-slate-200 bg-white lg:w-56"
+      className="sticky top-14 flex h-[calc(100vh-3.5rem)] w-16 shrink-0 flex-col border-r border-slate-200 bg-surface lg:w-56"
     >
       <ul className="flex flex-1 flex-col gap-0.5 p-2 lg:p-3 lg:pt-4">
         {items.map((item) => {

@@ -18,7 +18,7 @@ export function OriginBadge({ origin }: { origin: DocumentOrigin }) {
   if (origin === 'catalogo')
     return <Badge tone={{ icon: Globe, className: 'border-dpm-blue-300 bg-dpm-blue-50 text-dpm-blue-800' }}>Catálogo Dipromedic</Badge>
   if (origin === 'carga')
-    return <Badge tone={{ icon: Upload, className: 'border-slate-300 bg-white text-slate-700' }}>Carga manual</Badge>
+    return <Badge tone={{ icon: Upload, className: 'border-slate-300 bg-surface text-slate-700' }}>Carga manual</Badge>
   return null
 }
 

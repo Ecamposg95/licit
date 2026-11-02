@@ -142,7 +142,7 @@ export default function AttributeTable({ attributes, caption }: { attributes: Re
             className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${
               showQuotes
                 ? 'border-dpm-blue bg-dpm-blue-50 text-dpm-blue-800'
-                : 'border-slate-300 bg-white text-slate-600 hover:border-slate-400'
+                : 'border-slate-300 bg-surface text-slate-600 hover:border-slate-400'
             }`}
           >
             <Quote aria-hidden="true" className="h-3.5 w-3.5" />

@@ -49,7 +49,7 @@ export default function Tasks() {
                 aria-pressed={mine === o.v}
                 onClick={() => setMine(o.v)}
                 className={`border-r border-slate-300 px-3 py-1.5 text-sm last:border-r-0 ${
-                  mine === o.v ? 'bg-petrol-700 font-medium text-white' : 'bg-white text-slate-700 hover:bg-slate-50'
+                  mine === o.v ? 'bg-brand-strong font-medium text-white' : 'bg-surface text-slate-700 hover:bg-slate-50'
                 }`}
               >
                 {o.l}

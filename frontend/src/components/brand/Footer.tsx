@@ -1,3 +1,4 @@
+import AtlasCredit from '@/components/brand/AtlasCredit'
 import { formatDate } from '@/lib/format'
 
 /**
@@ -26,7 +27,7 @@ export function CatalogCredit({ checkedOn, className }: { checkedOn: string; cla
   )
 }
 
-/** Pie de las páginas autenticadas y del login. */
+/** Pie de las páginas autenticadas y del login: crédito de catálogo (obligatorio), aviso de marcas y crédito de Atlas Tech. */
 export default function Footer({ checkedOn, className }: { checkedOn: string; className?: string }) {
   return (
     <footer
@@ -38,6 +39,7 @@ export default function Footer({ checkedOn, className }: { checkedOn: string; cl
         <CatalogCredit checkedOn={checkedOn} />
       </p>
       <p>Las marcas de terceros pertenecen a sus respectivos dueños.</p>
+      <AtlasCredit />
     </footer>
   )
 }

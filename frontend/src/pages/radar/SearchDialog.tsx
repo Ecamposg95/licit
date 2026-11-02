@@ -440,7 +440,7 @@ export default function SearchDialog({ open, onClose, onFinished, onOpenImport }
         e.preventDefault()
         onClose()
       }}
-      className="w-[min(46rem,calc(100vw-2rem))] rounded-xl border border-slate-200 p-0 text-slate-900 shadow-2xl backdrop:bg-slate-900/40"
+      className="w-[min(46rem,calc(100vw-2rem))] rounded-xl border border-slate-200 bg-surface p-0 text-slate-900 shadow-2xl backdrop:bg-ink/50"
     >
       <form onSubmit={submit}>
         <div className="max-h-[calc(100vh-10rem)] overflow-y-auto p-6">

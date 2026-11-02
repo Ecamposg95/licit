@@ -157,7 +157,7 @@ export default function RequirementsTab({ opportunityId, opportunityDataKind, on
             aria-pressed={statusFilter === null}
             onClick={() => setStatusFilter(null)}
             className={`rounded-full border px-3 py-1 text-xs font-medium ${
-              statusFilter === null ? 'border-petrol-700 bg-petrol-700 text-white' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+              statusFilter === null ? 'border-brand-strong bg-brand-strong text-white' : 'border-slate-300 bg-surface text-slate-700 hover:bg-slate-50'
             }`}
           >
             Todos · {data.length}
@@ -169,7 +169,7 @@ export default function RequirementsTab({ opportunityId, opportunityDataKind, on
               aria-pressed={statusFilter === s}
               onClick={() => setStatusFilter(statusFilter === s ? null : s)}
               className={`rounded-full border px-3 py-1 text-xs font-medium ${
-                statusFilter === s ? 'border-petrol-700 bg-petrol-700 text-white' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+                statusFilter === s ? 'border-brand-strong bg-brand-strong text-white' : 'border-slate-300 bg-surface text-slate-700 hover:bg-slate-50'
               }`}
             >
               {statusLabel(s)} · {counts[s]}

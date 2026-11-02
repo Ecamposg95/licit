@@ -47,7 +47,7 @@ function Header({ o }: { o: Detail }) {
         <DataKindBadge kind={o.data_kind} />
         <DerivedBadge derived={o.derived} />
         {o.requires_human_review && (
-          <Badge tone={{ icon: UserCheck, className: 'border-slate-300 bg-white text-slate-700' }}>
+          <Badge tone={{ icon: UserCheck, className: 'border-slate-300 bg-surface text-slate-700' }}>
             Requiere revisión humana
           </Badge>
         )}

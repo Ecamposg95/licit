@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { LoaderCircle } from 'lucide-react'
 import Footer from '@/components/brand/Footer'
+import ThemeToggle from '@/components/ThemeToggle'
 import Logo from '@/components/brand/Logo'
 import { ErrorMeta } from '@/components/feedback'
 import { getMe, getMeta, login, toApiError, type ApiError } from '@/lib/api'
@@ -50,6 +51,7 @@ export default function Login() {
     <div className="flex min-h-screen flex-col bg-canvas lg:flex-row">
       <section className="surface-dark relative flex flex-col bg-dpm-navy px-6 py-7 text-dpm-navy-200 sm:px-10 lg:w-[44%] lg:max-w-[680px] lg:px-14 lg:py-12">
         <Logo variant="white" className="h-12 self-start lg:h-16" />
+        <ThemeToggle className="absolute right-4 top-4 sm:right-6 sm:top-6" />
 
         <div className="mt-10 max-w-[30rem] lg:my-auto lg:py-10">
           <h1 className="text-[1.75rem] font-semibold leading-[1.15] tracking-tight text-white sm:text-[2.15rem]">
@@ -136,7 +138,7 @@ export default function Login() {
               </button>
             </form>
 
-            <div className="mt-8 rounded-md border border-slate-200 bg-white px-4 py-3 text-xs text-slate-600">
+            <div className="mt-8 rounded-md border border-slate-200 bg-surface px-4 py-3 text-xs text-slate-600">
               <p className="font-medium text-slate-700">Cuentas de demostración</p>
               <p className="mt-1">
                 Usuarios ficticios con dominio <code className="text-slate-800">@dipromedic.example</code>, uno por rol:{' '}

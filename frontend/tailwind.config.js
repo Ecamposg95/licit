@@ -1,27 +1,18 @@
 /** @type {import('tailwindcss').Config} */
+import plugin from 'tailwindcss/plugin'
+import { STATUS_NAMES, cssVars, dpmBlue as dpmBlueHex, themedColor, themedScale } from './theme.palettes.js'
 
 // Identidad Dipromedic (docs/adr/ADR-003-identidad.md). Valores del bloque :root de
 // https://www.dipromedic.com/style.css, consultado el 2026-10-28 (docs/research/dipromedic-web.md §1.2).
 //
 // Azul corporativo: el tono de marca es el paso 600 (= DEFAULT). Contra blanco da 4.89:1 (AA para texto
 // normal). Sobre el tinte 50 baja a 4.48:1, así que el texto sobre tintes claros va en 700 (6.16:1).
-const dpmBlue = {
-  DEFAULT: '#0F75BC',
-  50: '#EEF6FC',
-  100: '#D8EAF8',
-  200: '#B3D6F1',
-  300: '#7FBAE6',
-  400: '#4398D6',
-  500: '#1F84CB',
-  600: '#0F75BC',
-  700: '#0C5F9A',
-  800: '#0B4E7E',
-  900: '#0A3F66',
-  950: '#072943',
-}
+// Las escalas tematizadas (neutros, estados y azul de marca) viven en theme.palettes.js: cambian con `.dark`.
+const dpmBlue = { DEFAULT: themedColor('dpm-blue-default'), ...themedScale('dpm-blue') }
 
 export default {
   content: ['./index.html', './src/**/*.{ts,tsx}'],
+  darkMode: 'class',
   theme: {
     extend: {
       colors: {
@@ -57,7 +48,14 @@ export default {
         },
         // Alias de compatibilidad: las páginas de E1 usan `petrol-*`, que ahora es el azul Dipromedic.
         petrol: dpmBlue,
-        canvas: '#F4F6F9',
+        canvas: themedColor('canvas'),
+        surface: themedColor('surface'),
+        slate: themedScale('slate'),
+        ...Object.fromEntries(STATUS_NAMES.map((n) => [n, themedScale(n)])),
+        // Fijos (no cambian con el tema): rellenos sólidos que llevan texto blanco encima.
+        brand: { DEFAULT: dpmBlueHex[600], strong: dpmBlueHex[700], stronger: dpmBlueHex[800] },
+        danger: { DEFAULT: '#B91C1C', strong: '#991B1B', mark: '#DC2626' },
+        ink: { DEFAULT: '#0F172A', muted: '#475569' },
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', '-apple-system', '"Segoe UI"', 'Roboto', 'sans-serif'],
@@ -68,5 +66,9 @@ export default {
       },
     },
   },
-  plugins: [],
+  plugins: [
+    plugin(({ addBase }) => {
+      addBase({ ':root': { ...cssVars('light'), colorScheme: 'light' }, '.dark': { ...cssVars('dark'), colorScheme: 'dark' } })
+    }),
+  ],
 }
