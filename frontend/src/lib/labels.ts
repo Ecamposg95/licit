@@ -132,6 +132,10 @@ export const resourceTypeLabel = (c: string | null | undefined) => lookup(RESOUR
 
 const AUDIT_ACTION: Record<string, string> = {
   'auth.login': 'Inicio de sesión',
+  'account.password_set': 'Contraseña de cuenta cambiada',
+  'account.deactivated': 'Acceso de cuenta retirado',
+  'account.activated': 'Acceso de cuenta devuelto',
+  'account.expiry_set': 'Vencimiento de cuenta fijado',
   'opportunity.create': 'Oportunidad creada',
   'opportunity.update': 'Oportunidad actualizada',
   'opportunity.import': 'Oportunidad importada manualmente',
