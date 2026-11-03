@@ -16,6 +16,13 @@ class SourceStatus(str, enum.Enum):
     INACCESIBLE = "inaccesible"      # error de red o del portal en la última consulta
 
 
+class TriageStatus(str, enum.Enum):
+    """Clasificación de una oportunidad REAL en el tablero Hoy."""
+    NUEVA = "nueva"
+    SIGUIENDO = "siguiendo"
+    DESCARTADA = "descartada"
+
+
 class Source(OrgScoped, Base):
     __tablename__ = "sources"
     __table_args__ = (UniqueConstraint("organization_id", "key"),)
@@ -79,8 +86,15 @@ class Opportunity(OrgScoped, Base):
     notes = Column(Text)
     version = Column(Integer, nullable=False, default=1)
 
+    # Clasificación (T17): null en datos no REAL; la fijan los puntos de creación.
+    triage_status = Column(String(12), index=True)
+    triage_reason = Column(Text)
+    triage_by_id = Column(String(36), ForeignKey("users.id"))
+    triage_at = Column(DateTime(timezone=True))
+    published_at = Column(DateTime(timezone=True))       # publicación en la fuente; desconocida = null
+
     source = relationship("Source", lazy="joined")
-    owner = relationship("User", lazy="joined")
+    owner = relationship("User", lazy="joined", foreign_keys=[owner_id])
     lots = relationship("Lot", back_populates="opportunity", cascade="all, delete-orphan",
                         order_by="Lot.number")
 

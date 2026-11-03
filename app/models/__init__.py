@@ -2,7 +2,7 @@
 from app.models.base import DataKind  # noqa: F401
 from app.models.identity import Organization, User, UserRole  # noqa: F401
 from app.models.opportunity import (  # noqa: F401
-    Lot, Opportunity, Source, SourceStatus, VerificationStatus,
+    Lot, Opportunity, Source, SourceStatus, TriageStatus, VerificationStatus,
 )
 from app.models.catalog import Product, Variant  # noqa: F401
 from app.models.expediente import (  # noqa: F401
@@ -10,5 +10,6 @@ from app.models.expediente import (  # noqa: F401
 )
 from app.models.workflow import (  # noqa: F401
     BidWorkspace, DemoRun, GeneratedArtifact, Job, JobStatus, MatchAssessment, OpportunityEvidence,
-    SearchRun, SearchRunStatus,
+    SearchRun, SearchRunStatus, Sweep, SweepStatus,
 )
+from app.models.saved_search import SavedSearch  # noqa: F401

@@ -1,7 +1,7 @@
 """Corridas demo, trabajos, búsquedas con evidencia, evaluación y expediente de licitación."""
 import enum
 
-from sqlalchemy import JSON, Boolean, Column, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, Boolean, Column, Date, DateTime, ForeignKey, Integer, String, Text
 
 from app.core.database import Base
 from app.models.base import OrgScoped, new_id, utcnow
@@ -50,6 +50,32 @@ class SearchRunStatus(str, enum.Enum):
     FAILED = "failed"
 
 
+class SweepStatus(str, enum.Enum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    DONE = "done"
+    PARTIAL = "partial"
+    FAILED = "failed"
+
+
+class Sweep(OrgScoped, Base):
+    """Barrido diario (o manual) del DOF: agrupa las corridas de búsqueda de un día."""
+    __tablename__ = "sweeps"
+
+    day = Column(Date, nullable=False, index=True)
+    attempt = Column(Integer, nullable=False, default=1)
+    trigger = Column(String(10), nullable=False, default="daily")          # daily | manual
+    status = Column(String(20), nullable=False, default=SweepStatus.QUEUED.value)
+    terms = Column(JSON, nullable=False, default=list)
+    dropped_terms = Column(JSON, nullable=False, default=list)
+    counts = Column(JSON, nullable=False, default=dict)    # notes, procedures, new, updated, unchanged
+    errors = Column(JSON, nullable=False, default=list)    # [{batch, code, message}]
+    job_id = Column(String(36), ForeignKey("jobs.id"))
+    created_by_id = Column(String(36), ForeignKey("users.id"))
+    started_at = Column(DateTime(timezone=True))
+    finished_at = Column(DateTime(timezone=True))
+
+
 class SearchRun(OrgScoped, Base):
     __tablename__ = "search_runs"
 
@@ -61,6 +87,7 @@ class SearchRun(OrgScoped, Base):
     counts = Column(JSON, nullable=False, default=dict)
     errors = Column(JSON, nullable=False, default=list)
     job_id = Column(String(36), ForeignKey("jobs.id"))
+    sweep_id = Column(String(36), ForeignKey("sweeps.id"), index=True)
 
 
 class OpportunityEvidence(OrgScoped, Base):

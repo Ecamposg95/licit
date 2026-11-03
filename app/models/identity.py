@@ -23,6 +23,8 @@ class User(OrgScoped, Base):
     hashed_password = Column(String(255), nullable=False)
     is_active = Column(Boolean, nullable=False, default=True)
     expires_at = Column(DateTime(timezone=True))           # cuentas demo con vencimiento; null = no vence
+    hoy_seen_at = Column(DateTime(timezone=True))          # última visita al tablero Hoy
+    hoy_prev_seen_at = Column(DateTime(timezone=True))     # visita anterior (base de «nuevo desde»)
 
     roles = relationship("UserRole", cascade="all, delete-orphan", lazy="selectin")
 
