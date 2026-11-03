@@ -29,7 +29,7 @@ from app.schemas.sweep import SweepOut
 from app.schemas.v1 import UserRef
 from app.services import audit, jobs, search_runs
 from app.sources.dates_es import MX
-from app.sources.sidof import SidofClient
+from app.sources.sidof import SOURCE_KEY, SidofClient
 
 logger = logging.getLogger(__name__)
 
@@ -140,15 +140,20 @@ def _enqueue_sweep(db: Session, org_id: str, *, day, attempt: int, trigger: str,
 
 
 def schedule_due(db: Session, now: datetime) -> list[Sweep]:
-    """Encola el barrido diario que toque en cada organización (primer intento o reintento) y hace commit."""
-    if not _due_now(now):
-        return []
+    """Encola el barrido diario que toque en cada organización (primer intento o reintento) y hace commit.
+
+    Los barridos interrumpidos (diarios o manuales) se sincronizan siempre, aunque el barrido diario esté apagado o
+    no sea la hora todavía.
+    """
+    due = _due_now(now)
     now = now.astimezone(timezone.utc)
     day = now.astimezone(MX).date()
     created: list[Sweep] = []
     for org_id in db.scalars(select(Organization.id).order_by(Organization.id)).all():
         _sync_interrupted(db, org_id, now)
         db.flush()
+        if not due:
+            continue
         today = _daily_today(db, org_id, day)
         last = today[-1] if today else None
         if last is None:
@@ -200,10 +205,18 @@ def _batch(db: Session, job: Job, sweep: Sweep, number: int, terms: list[str], d
     except Exception as exc:
         db.rollback()
         logger.exception("El lote %d del barrido %s falló", number, sweep.id)
+        message = f"El lote se detuvo por un error interno ({type(exc).__name__})."
         run = db.get(SearchRun, run_id)
+        if run.status not in (SearchRunStatus.DONE.value, SearchRunStatus.PARTIAL.value,
+                              SearchRunStatus.FAILED.value):
+            # Falló antes del manejo de errores de la corrida: no se deja en cola ni en curso para siempre.
+            run.status = SearchRunStatus.FAILED.value
+            run.finished_at = utcnow()
+            run.errors = list(run.errors or []) + [
+                {"source": SOURCE_KEY, "term": None, "code": "internal_error", "message": message}]
+            db.commit()
         return run.status, search_runs.summary_counts(run.counts), [
-            {"batch": number, "term": None, "code": "internal_error",
-             "message": f"El lote se detuvo por un error interno ({type(exc).__name__})."}]
+            {"batch": number, "term": None, "code": "internal_error", "message": message}]
     errors = [{"batch": number, "term": e.get("term"), "code": e["code"], "message": e["message"]}
               for e in result["errors"]]
     return result["status"], result["counts"], errors
@@ -223,7 +236,7 @@ def run_sweep_job(db: Session, job: Job, client_factory: Callable[[], object] = 
         sweep.started_at = utcnow()
         db.commit()
 
-        date_to = datetime.now(MX).date()
+        date_to = sweep.day
         date_from = date_to - timedelta(days=WINDOW_DAYS - 1)
         statuses: list[str] = []
         counts = {k: 0 for k in _COUNT_KEYS}
@@ -258,6 +271,9 @@ def run_sweep_job(db: Session, job: Job, client_factory: Callable[[], object] = 
             {"batch": None, "code": "internal_error",
              "message": f"El barrido se detuvo por un error interno ({type(exc).__name__})."}]
         sweep.finished_at = utcnow()
+        audit.record(db, organization_id=sweep.organization_id, actor_id=sweep.created_by_id, action="sweep.finish",
+                     resource_type="sweep", resource_id=sweep_id,
+                     after={"status": sweep.status, "errors": [e["code"] for e in sweep.errors]})
         db.commit()
         raise
 

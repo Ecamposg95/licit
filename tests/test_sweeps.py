@@ -137,7 +137,7 @@ def test_sweep_runs_batches_and_aggregates(db, on, fake):
     for r in runs:
         assert r.created_by_id is None and r.job_id == job.id and r.status == "done"
         assert date.fromisoformat(r.query["date_to"]) - date.fromisoformat(r.query["date_from"]) == timedelta(days=6)
-        assert date.fromisoformat(r.query["date_to"]) == datetime.now(MX).date()
+        assert date.fromisoformat(r.query["date_to"]) == s.day          # la ventana sale del día del barrido
     assert s.status == "done" and s.errors == []
     assert s.counts["notes"] == 2 == sum(r.counts["notes"] for r in runs)
     assert s.counts["new"] == sum(r.counts["new"] for r in runs) >= 1
@@ -188,6 +188,42 @@ def test_batch_exception_marks_only_that_batch(db, on, monkeypatch, fake):
     s = daily(db)[0]
     assert s.status == "partial"
     assert [e["code"] for e in s.errors] == ["internal_error"] and s.errors[0]["batch"] == 1
+    runs = list(db.scalars(select(SearchRun).where(SearchRun.sweep_id == s.id).order_by(SearchRun.created_at)))
+    # La excepción escapó antes del manejo de la corrida: aun así no queda en cola para siempre.
+    assert [r.status for r in runs] == ["failed", "done"]
+    assert runs[0].finished_at is not None and runs[0].errors[-1]["code"] == "internal_error"
+
+
+def test_all_batches_raise_is_failed(db, on, monkeypatch, fake):
+    save_search(db, "Muchos", [f"termino {c}" for c in "abcdefgh"])
+    from app.services import search_runs
+
+    def boom(db_, job, run, client_factory):
+        raise RuntimeError("explosión")
+
+    monkeypatch.setattr(search_runs, "execute_run", boom)
+    sweeps.schedule_due(db, mx(6, 0))
+    run_worker(db)
+    s = daily(db)[0]
+    assert s.status == "failed" and [e["batch"] for e in s.errors] == [1, 2]
+    statuses = db.scalars(select(SearchRun.status).where(SearchRun.sweep_id == s.id)).all()
+    assert statuses == ["failed", "failed"]
+
+
+def test_sweep_internal_error_is_audited(db, on, monkeypatch, fake):
+    def broken(db_, org_id):
+        raise RuntimeError("sin términos")
+
+    monkeypatch.setattr(sweeps, "compose_terms", broken)
+    sweeps.schedule_due(db, mx(6, 0))
+    job = run_worker(db)
+    assert job.status == "failed"
+    s = daily(db)[0]
+    assert s.status == "failed" and s.finished_at is not None
+    assert [e["code"] for e in s.errors] == ["internal_error"]
+    fin = db.scalars(select(AuditEvent).where(AuditEvent.action == "sweep.finish")).one()
+    assert fin.actor_id is None and fin.resource_id == s.id
+    assert fin.after == {"status": "failed", "errors": ["internal_error"]}
 
 
 def test_aggregate_status():
@@ -243,6 +279,22 @@ def test_stale_sweep_is_failed_and_retried(db, on):
     assert len(daily(db)) == 1
     sweeps.tick(db, mx(8, 0))
     assert [x.attempt for x in daily(db)] == [1, 2]
+
+
+def test_interrupted_synced_even_when_off(db, monkeypatch):
+    monkeypatch.setattr(config, "DAILY_SWEEP", False)
+    s = sweeps.start_manual(db, user(db), None)
+    s.status = "running"
+    job = db.get(Job, s.job_id)
+    job.status, job.error = "failed", jobs.STALE_ERROR
+    db.commit()
+
+    assert sweeps.schedule_due(db, mx(3, 0)) == []
+    db.expire_all()
+    s = db.get(Sweep, s.id)
+    assert s.status == "failed" and s.finished_at is not None
+    assert s.errors == [{"batch": None, "code": "interrupted", "message": jobs.STALE_ERROR}]
+    assert daily(db) == []
 
 
 def test_tick_is_throttled(db, on, monkeypatch):
