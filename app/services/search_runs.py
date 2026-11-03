@@ -96,8 +96,8 @@ def families_for(text: str | None, terms: Sequence[str] = ()) -> list[str]:
     return found
 
 
-def normalize_terms(terms: Sequence[str] | None) -> list[str]:
-    """Términos limpios y sin repetir (sin distinguir acentos ni mayúsculas); vacío → DEFAULT_TERMS."""
+def normalize_terms(terms: Sequence[str] | None, *, default: bool = True) -> list[str]:
+    """Términos limpios y sin repetir (sin distinguir acentos ni mayúsculas); vacío → DEFAULT_TERMS (salvo default=False)."""
     out: list[str] = []
     seen: set[str] = set()
     for raw in terms or []:
@@ -106,7 +106,7 @@ def normalize_terms(terms: Sequence[str] | None) -> list[str]:
         if key and key not in seen:
             seen.add(key)
             out.append(term)
-    return out or list(DEFAULT_TERMS)
+    return out or (list(DEFAULT_TERMS) if default else [])
 
 
 # ── Inicio ───────────────────────────────────────────────────────────────────

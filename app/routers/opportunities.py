@@ -19,7 +19,7 @@ from app.schemas.v1 import (
     TaskOut, TriageIn, UserRef,
 )
 from app.schemas.workspace import EvidenceDetail, RequirementDetail
-from app.services import audit, review, triage
+from app.services import audit, review, saved_searches, triage
 from app.services.affinity import check_validity
 from app.services.demo_seed import current_demo_run_id
 from app.services.status import derive_status
@@ -67,6 +67,7 @@ def list_opportunities(
     data_kind: list[str] = Query(default=[], description="REAL, HISTORICAL, SYNTHETIC (repetible)"),
     period_from: date | None = None,
     period_to: date | None = None,
+    saved_search_id: str | None = Query(None, description="Solo las oportunidades que coinciden con la búsqueda guardada propia"),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
@@ -93,6 +94,10 @@ def list_opportunities(
     # families es JSON: se filtra en Python para mantener compatibilidad SQLite/Postgres.
     if family:
         rows = [o for o in rows if family in (o.families or [])]
+    if saved_search_id:
+        saved = saved_searches.get_own(db, saved_search_id, user)
+        excerpts = saved_searches.excerpts_by_opportunity(db, [o.id for o in rows])
+        rows = [o for o in rows if saved_searches.matches(saved, o, excerpts.get(o.id, []))]
     total = len(rows)
     rows = rows[(page - 1) * page_size: page * page_size]
     counts = _open_counts(db, [o.id for o in rows])
