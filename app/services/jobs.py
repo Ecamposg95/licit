@@ -3,10 +3,13 @@
 Un hilo del servicio web toma los trabajos con `FOR UPDATE SKIP LOCKED` y ejecuta el handler
 registrado para su `kind`. Los módulos que definen handlers los registran al importarse con
 `register(kind, handler)`; el handler recibe la sesión y el trabajo y devuelve el resultado (dict) o None.
+
+Los ganchos de *tick* (`register_tick`) corren cuando el worker está ocioso (no había trabajo en cola), cada uno con
+una sesión nueva; así se programan trabajos periódicos como el barrido diario sin otro hilo.
 """
 import logging
 import threading
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Callable
 
 from sqlalchemy import select, update
@@ -22,6 +25,8 @@ logger = logging.getLogger(__name__)
 
 Handler = Callable[[Session, Job], dict | None]
 _HANDLERS: dict[str, Handler] = {}
+Tick = Callable[[Session, datetime], None]
+_TICKS: list[Tick] = []
 
 _STOP_TIMEOUT_SECONDS = 10.0
 STALE_ERROR = "Interrumpido: el proceso se reinició antes de terminar"
@@ -31,6 +36,27 @@ _thread: threading.Thread | None = None
 
 def register(kind: str, handler: Handler) -> None:
     _HANDLERS[kind] = handler
+
+
+def register_tick(fn: Tick) -> None:
+    if fn not in _TICKS:
+        _TICKS.append(fn)
+
+
+def run_ticks(now: datetime) -> None:
+    """Llama a cada gancho con su propia sesión; uno que falla se registra y no detiene a los demás ni al worker."""
+    for fn in list(_TICKS):
+        db = None
+        try:
+            db = SessionLocal()
+            fn(db, now)
+        except Exception:
+            logger.exception("Falló el gancho periódico %s", getattr(fn, "__qualname__", fn))
+            if db is not None:
+                db.rollback()
+        finally:
+            if db is not None:
+                db.close()
 
 
 def _by_key(db: Session, key: str) -> Job | None:
@@ -133,6 +159,7 @@ def _loop(poll_seconds: float, stop: threading.Event) -> None:
         finally:
             db.close()
         if job is None:
+            run_ticks(utcnow())
             stop.wait(poll_seconds)
 
 

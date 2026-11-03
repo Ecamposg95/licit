@@ -90,3 +90,21 @@ al crear cuentas nuevas.
 
 Ver `CLAUDE.md` (copiar a un directorio de Linux y `railway up` desde ahí). Respalda antes si el cambio trae una
 migración nueva (`alembic/versions`).
+
+## 7. Barrido diario en SIDOF
+
+- **Qué hace.** El worker de trabajos (`JOBS_WORKER=1`) encola un trabajo `daily_sweep` por organización a partir de
+  las `DAILY_SWEEP_HOUR` (hora de Ciudad de México, 6 por omisión) si todavía no existe el de ese día. Busca en los
+  últimos 7 días de publicación del DOF los términos del diccionario y los de las búsquedas guardadas (tope de 30; los
+  que quedan fuera se listan en `dropped_terms`), en lotes de 10. Cada lote es una corrida de búsqueda con `sweep_id`.
+  Corre sin actor: en la bitácora aparece como «Sistema» (`sweep.start`, `search.start`, `search.finish`,
+  `sweep.finish`).
+- **Resultado.** `done` si todos los lotes terminaron bien, `failed` si todos fallaron y `partial` en cualquier otra
+  mezcla (`errors` dice qué lote y qué término no se revisó). Un SIDOF caído **no** significa que no haya licitaciones.
+- **Reintentos.** Un barrido diario `failed` se reintenta solo cada hora, hasta 3 intentos en el día. Si un reinicio lo
+  dejó a medias, se marca `failed` con el código `interrupted` y entra al mismo reintento.
+- **Apagarlo.** `DAILY_SWEEP=0` en las variables del servicio `web` (y redeploy). Para cambiar la hora:
+  `DAILY_SWEEP_HOUR=7`.
+- **Reintentar a mano.** Botón «Volver a barrer» del tablero (permiso `search.run`) o
+  `POST /api/v1/sweeps` con una cabecera `Idempotency-Key`. Corre con el actor de quien lo pide y comparte el worker
+  con las búsquedas manuales (una a la vez). El historial está en `GET /api/v1/sweeps?limit=10`.

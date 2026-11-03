@@ -25,6 +25,10 @@ ORGANIZATION_NAME = os.getenv("ORGANIZATION_NAME", "Dipromedic · Demo")
 
 # Worker de trabajos en un hilo del servicio web. Las pruebas lo apagan (JOBS_WORKER=0).
 JOBS_WORKER = _bool("JOBS_WORKER", True)
+# Barrido diario automático en SIDOF (T17): lo encola el worker a partir de DAILY_SWEEP_HOUR (hora de Ciudad de
+# México). DAILY_SWEEP=0 lo apaga (las pruebas lo apagan).
+DAILY_SWEEP = _bool("DAILY_SWEEP", True)
+DAILY_SWEEP_HOUR = int(os.getenv("DAILY_SWEEP_HOUR", "6"))
 # Importar el catálogo público de Dipromedic en el bootstrap (frente B). Las pruebas lo apagan.
 IMPORT_CATALOG = _bool("IMPORT_CATALOG", True)
 # Raíz del almacenamiento local de archivos cuando no hay bucket (OBJECT_STORAGE_BUCKET).

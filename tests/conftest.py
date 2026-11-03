@@ -10,6 +10,7 @@ os.environ["BCRYPT_ROUNDS"] = "4"
 os.environ.pop("ADMIN_EMAIL", None)
 # Sin worker en segundo plano ni importación del catálogo; archivos en un directorio temporal.
 os.environ["JOBS_WORKER"] = "0"
+os.environ["DAILY_SWEEP"] = "0"
 os.environ["IMPORT_CATALOG"] = "0"
 os.environ["STORAGE_DIR"] = tempfile.mkdtemp(prefix="licit-storage-")
 os.environ.pop("OBJECT_STORAGE_BUCKET", None)

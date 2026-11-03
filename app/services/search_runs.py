@@ -96,13 +96,18 @@ def families_for(text: str | None, terms: Sequence[str] = ()) -> list[str]:
     return found
 
 
+def term_key(term: str) -> str:
+    """Clave para comparar términos: palabras sin acentos ni mayúsculas."""
+    return " ".join(_words(term))
+
+
 def normalize_terms(terms: Sequence[str] | None, *, default: bool = True) -> list[str]:
     """Términos limpios y sin repetir (sin distinguir acentos ni mayúsculas); vacío → DEFAULT_TERMS (salvo default=False)."""
     out: list[str] = []
     seen: set[str] = set()
     for raw in terms or []:
         term = re.sub(r"\s+", " ", raw or "").strip()
-        key = " ".join(_words(term))
+        key = term_key(term)
         if key and key not in seen:
             seen.add(key)
             out.append(term)
@@ -595,6 +600,14 @@ def run_search_job(db: Session, job: Job, client_factory: Callable[[], object] =
                                              SearchRun.organization_id == job.organization_id)).first()
     if run is None:
         raise LookupError(f"El trabajo {job.id} no tiene corrida de búsqueda")
+    return execute_run(db, job, run, client_factory)
+
+
+def execute_run(db: Session, job: Job, run: SearchRun, client_factory: Callable[[], object]) -> dict:
+    """Ejecuta una corrida ya creada (búsqueda manual o lote de un barrido) y hace commit de cada avance.
+
+    Si algo falla, deja la corrida en `failed` con `internal_error` y vuelve a lanzar la excepción.
+    """
     run_id = run.id
     state = _State(run.query["terms"])
     run.status = SearchRunStatus.RUNNING.value
