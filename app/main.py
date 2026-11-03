@@ -14,6 +14,7 @@ from app.routers import artifacts, auth, catalog, documents, governance, jobs as
 from app.routers import search as search_router
 from app.routers import saved_searches as saved_searches_router
 from app.routers import sweeps as sweeps_router
+from app.routers import hoy as hoy_router
 from app.routers import workspaces
 from app.services import jobs
 
@@ -53,6 +54,7 @@ app.include_router(workspaces.router)
 app.include_router(artifacts.router)
 app.include_router(saved_searches_router.router)
 app.include_router(sweeps_router.router)
+app.include_router(hoy_router.router)
 
 
 @app.get("/health", include_in_schema=False)
