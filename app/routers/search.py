@@ -176,6 +176,7 @@ def _import_metadata(db: Session, user: User, meta: ManualMetadata) -> Opportuni
         result="desconocido", submission_at=submission, submission_precision="datetime",
         source_timezone="America/Mexico_City" if submission else None, timezone_assumed=assumed,
         requires_human_review=True, notes=" ".join(x for x in (meta.notes, captured) if x),
+        triage_status="nueva",
     )
     db.add(opp)
     db.flush()

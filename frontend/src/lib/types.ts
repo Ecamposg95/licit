@@ -139,6 +139,9 @@ export interface OpportunityRow {
   /** Se calcula en E3 (motor de correspondencia); hoy siempre null. */
   affinity: Record<string, unknown> | null
   open_requirements: number
+  triage_status: 'nueva' | 'siguiendo' | 'descartada' | null
+  published_at: IsoDateTime | null
+  created_at: IsoDateTime
 }
 
 export interface VariantRef {

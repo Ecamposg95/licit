@@ -1,9 +1,9 @@
 """Contratos de la API v1. Fuente de la especificación OpenAPI (/openapi.json)."""
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, Literal, TypeVar
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 T = TypeVar("T")
 
@@ -99,6 +99,9 @@ class OpportunityRow(BaseModel):
     owner: UserRef | None
     affinity: dict | None          # se calcula en E3 (motor de correspondencia)
     open_requirements: int
+    triage_status: str | None
+    published_at: datetime | None
+    created_at: datetime
 
 
 class VariantRef(ORM):
@@ -137,6 +140,16 @@ class OpportunityDetail(OpportunityRow):
     version: int
     lots: list[LotOut]
     requirement_counts: dict[str, int]
+    triage_reason: str | None
+    triage_by: UserRef | None
+    triage_at: datetime | None
+
+
+class TriageIn(BaseModel):
+    expected_version: int
+    action: Literal["seguir", "descartar"]
+    owner_id: str | None = None
+    reason: str | None = Field(None, max_length=500)
 
 
 class OpportunityPatch(BaseModel):

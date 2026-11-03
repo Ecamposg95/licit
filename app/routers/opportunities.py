@@ -16,10 +16,10 @@ from app.models import (
 )
 from app.schemas.v1 import (
     AuditOut, Derived, DocumentOut, LotOut, OpportunityDetail, OpportunityPatch, OpportunityRow, Page, SourceRef,
-    TaskOut, UserRef,
+    TaskOut, TriageIn, UserRef,
 )
 from app.schemas.workspace import EvidenceDetail, RequirementDetail
-from app.services import audit, review
+from app.services import audit, review, triage
 from app.services.affinity import check_validity
 from app.services.demo_seed import current_demo_run_id
 from app.services.status import derive_status
@@ -42,7 +42,8 @@ def _row(opp: Opportunity, open_reqs: int, now: datetime) -> dict:
         last_checked_at=opp.last_checked_at, submission_at=opp.submission_at,
         submission_precision=opp.submission_precision, verification_status=opp.verification_status,
         derived=Derived(code=d.code, label=d.label, reason=d.reason), owner=_user_ref(opp.owner),
-        affinity=None, open_requirements=open_reqs,
+        affinity=None, open_requirements=open_reqs, triage_status=opp.triage_status,
+        published_at=opp.published_at, created_at=opp.created_at,
     )
 
 
@@ -115,6 +116,8 @@ def get_opportunity(opportunity_id: str, db: Session = Depends(get_db),
         estimated_amount=opp.estimated_amount, currency=opp.currency,
         requires_human_review=opp.requires_human_review, notes=opp.notes, version=opp.version,
         lots=[LotOut.model_validate(l) for l in opp.lots], requirement_counts=dict(counts),
+        triage_reason=opp.triage_reason, triage_by=_user_ref(db.get(User, opp.triage_by_id)) if opp.triage_by_id else None,
+        triage_at=opp.triage_at,
     )
 
 
@@ -138,6 +141,20 @@ def patch_opportunity(opportunity_id: str, payload: OpportunityPatch, db: Sessio
     audit.record(db, organization_id=user.organization_id, actor_id=user.id, action="opportunity.update",
                  resource_type="opportunity", resource_id=opp.id, before=before,
                  after=audit.snapshot(opp, list(changes)))
+    if "owner_id" in changes:
+        triage.on_owner_assigned(db, opp, user)
+    db.commit()
+    return get_opportunity(opp.id, db, user)
+
+
+@router.post("/{opportunity_id}/triage", response_model=OpportunityDetail)
+def triage_opportunity(opportunity_id: str, payload: TriageIn, db: Session = Depends(get_db),
+                       user: User = Depends(require_permission(Perm.OPPORTUNITY_WRITE))):
+    opp = get_owned(db, Opportunity, opportunity_id, user, "Oportunidad")
+    if payload.expected_version != opp.version:
+        raise AppError(409, "version_conflict", "La oportunidad cambió desde que la abriste; recarga.",
+                       {"current_version": opp.version})
+    triage.apply(db, opp, user, payload.action, owner_id=payload.owner_id, reason=payload.reason)
     db.commit()
     return get_opportunity(opp.id, db, user)
 

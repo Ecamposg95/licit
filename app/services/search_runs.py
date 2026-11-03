@@ -240,6 +240,7 @@ def _new_opportunity(org_id: str, nid: str, proc: ProcedureParsed, note: NoteDet
         submission_precision=proc.submission_precision if proc.submission_at else "datetime",
         source_timezone="America/Mexico_City" if has_dates else None, timezone_assumed=proc.timezone_assumed,
         requires_human_review=True, notes=_notes_text(proc, note),
+        triage_status="nueva", published_at=proc.published_at,
     )
 
 
