@@ -45,7 +45,7 @@ export function ModalShell({
         e.preventDefault()
         if (!busy) onClose()
       }}
-      className={`${wide ? 'w-[min(60rem,calc(100vw-2rem))]' : 'w-[min(38rem,calc(100vw-2rem))]'} max-h-[calc(100vh-2rem)] rounded-xl border border-slate-200 p-0 text-slate-900 shadow-2xl backdrop:bg-slate-900/40`}
+      className={`${wide ? 'w-[min(60rem,calc(100vw-2rem))]' : 'w-[min(38rem,calc(100vw-2rem))]'} max-h-[calc(100vh-2rem)] rounded-xl border border-slate-200 bg-surface p-0 text-slate-900 shadow-2xl backdrop:bg-ink/50`}
     >
       <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-6 py-4">
         <div className="min-w-0">

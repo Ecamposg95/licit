@@ -150,7 +150,7 @@ function ManifestPreview({ artifactId }: { artifactId: string }) {
       )}
       <details>
         <summary className="cursor-pointer text-slate-600 hover:text-slate-900">Ver manifest.json completo</summary>
-        <pre className="mt-2 max-h-80 overflow-auto rounded-md bg-slate-900 p-3 text-xs leading-relaxed text-slate-100">
+        <pre className="mt-2 max-h-80 overflow-auto rounded-md bg-ink p-3 text-xs leading-relaxed text-white/90">
           {JSON.stringify(m, null, 2)}
         </pre>
       </details>

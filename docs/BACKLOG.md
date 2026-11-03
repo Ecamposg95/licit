@@ -20,7 +20,7 @@ Estado al 2026-11-02 (integración 2 en producción desde el 2026-10-30; beta ab
 | T13 | Documentos DOCX y ZIP | ✅ | Seis plantillas con marca DEMO y `[PENDIENTE]`, totales exactos con Decimal, matriz CSV/XLSX, manifiesto con SHA-256 y descarga verificada. Falta abrirlos en Word |
 | T14 | Recorrido completo integrado | 🟡 | Fase 0 y las dos oleadas integradas; recorrido del guion probado por API y en el navegador local. Falta el ensayo completo en producción (H4) |
 | T15 | QA funcional, permisos y fallos | ✅ | Suite en SQLite y Postgres con los casos negativos del §16 (`tests/test_negative.py`); limitaciones registradas |
-| T16 | Despliegue, respaldo y ensayo | 🟡 | Integración 2 en producción (2026-10-30). Respaldo y restauración ensayados en local con el procedimiento de `docs/OPERACION.md` (conteos idénticos, cadena de auditoría válida). Cuentas del beta operables con `scripts/cuentas.py`. Falta el primer respaldo real de producción y el ensayo H4 |
+| T16 | Despliegue, respaldo y ensayo | 🟡 | Integración 2 en producción (2026-10-30). Respaldo y restauración ensayados en local con el procedimiento de `docs/OPERACION.md` (conteos idénticos, cadena de auditoría válida). Cuentas del beta operables con `scripts/cuentas.py`. Primer respaldo real de producción el 2026-11-02, restaurado en local y verificado (94 eventos con cadena válida). Falta el ensayo H4 |
 | T17 | Búsquedas guardadas y alertas | ⬜ | P1 |
 | T18 | OCR y plantillas adicionales | ⬜ | P1 |
 | T19 | Portales adicionales y ERP | ⬜ | P2. Fuera del alcance: el demo es solo comercial (decisión del 2026-10-30); se quitaron la vista de TI y el diagrama de planta/ERP |

@@ -5,6 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="robots" content="noindex, nofollow" />
     <meta name="theme-color" content="#001D4C" />
+    <script>
+      // Tema antes de pintar (sin parpadeo). Misma lógica que src/store/theme.ts.
+      try {
+        var t = localStorage.getItem('licit_theme')
+        if (t !== 'dark' && t !== 'light') t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+        document.documentElement.classList.add(t)
+      } catch (e) {}
+    </script>
     <title>Dipromedic · Licitaciones (Demo)</title>
     <link rel="icon" type="image/png" href="/brand/favicon.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />

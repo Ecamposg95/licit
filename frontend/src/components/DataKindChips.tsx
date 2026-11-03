@@ -23,8 +23,8 @@ export function usePersistentDataKinds(storageKey: string, initial: DataKind[] =
 }
 
 const CHIP_ON: Record<DataKind, string> = {
-  REAL: 'border-petrol-600 bg-petrol-700 text-white',
-  HISTORICAL: 'border-slate-500 bg-slate-600 text-white',
+  REAL: 'border-brand bg-brand-strong text-white',
+  HISTORICAL: 'border-ink-muted bg-ink-muted text-white',
   SYNTHETIC: 'border-amber-500 hatch-synthetic text-amber-950',
 }
 
@@ -52,13 +52,13 @@ export default function DataKindChips({ value, onChange, options = DATA_KINDS, l
             title={DATA_KIND_HINT[k]}
             onClick={() => toggle(k)}
             className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold tracking-wide transition-colors ${
-              on ? CHIP_ON[k] : 'border-slate-300 bg-white text-slate-500 hover:border-slate-400 hover:text-slate-700'
+              on ? CHIP_ON[k] : 'border-slate-300 bg-surface text-slate-500 hover:border-slate-400 hover:text-slate-700'
             }`}
           >
             <span
               aria-hidden="true"
               className={`flex h-3.5 w-3.5 items-center justify-center rounded-sm border ${
-                on ? 'border-current bg-white/90 text-slate-900' : 'border-slate-300'
+                on ? 'border-current bg-white/90 text-ink' : 'border-slate-300'
               }`}
             >
               {on && <Check className="h-3 w-3" strokeWidth={3} />}

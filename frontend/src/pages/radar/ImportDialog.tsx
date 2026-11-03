@@ -132,7 +132,7 @@ export default function ImportDialog({ open, onClose, onImported }: Props) {
         e.preventDefault()
         close()
       }}
-      className="w-[min(40rem,calc(100vw-2rem))] rounded-xl border border-slate-200 p-0 text-slate-900 shadow-2xl backdrop:bg-slate-900/40"
+      className="w-[min(40rem,calc(100vw-2rem))] rounded-xl border border-slate-200 bg-surface p-0 text-slate-900 shadow-2xl backdrop:bg-ink/50"
     >
       <div className="max-h-[calc(100vh-8rem)] overflow-y-auto p-6">
         <div className="flex items-start justify-between gap-4">

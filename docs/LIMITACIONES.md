@@ -77,8 +77,9 @@ si algo cambia, se corrige aquí antes de decirlo en una reunión.
 - Una réplica: el worker de trabajos corre dentro del servicio web (`JOBS_WORKER=1`). Los trabajos atascados en
   «running» más de 10 min se marcan fallidos al arrancar.
 - Respaldo y restauración ensayados el 2026-11-02 sobre una base local sembrada igual que producción (22 tablas con
-  conteos idénticos, Alembic en head y login correcto tras restaurar). **Falta el primer respaldo real de producción**
-  (ver `docs/OPERACION.md`). El respaldo de la base **no incluye los archivos del bucket**.
+  conteos idénticos, Alembic en head y login correcto tras restaurar). Primer respaldo real de producción el
+  2026-11-02, restaurado en local: Alembic en head, trigger de inmutabilidad y cadena de auditoría válida (94 eventos).
+  Los respaldos no son automáticos: se sacan a mano con `docs/OPERACION.md`. El respaldo de la base **no incluye los archivos del bucket**.
 - Las cuentas se operan con `scripts/cuentas.py` (contraseña, retiro de acceso, vencimiento); no hay pantalla para
   eso. Cambiar `DEMO_USER_PASSWORD` en Railway **no** cambia la contraseña de cuentas que ya existen.
 - Capacidad sin medir (objetivo del pack: 10 usuarios concurrentes, 500 oportunidades, p95 < 2 s).

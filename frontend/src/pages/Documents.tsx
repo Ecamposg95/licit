@@ -96,7 +96,7 @@ export default function Documents() {
                   aria-pressed={scope === s.value}
                   onClick={() => setScope(s.value)}
                   className={`border-r border-slate-300 px-3 py-1.5 text-sm last:border-r-0 ${
-                    scope === s.value ? 'bg-dpm-blue-700 font-medium text-white' : 'bg-white text-slate-700 hover:bg-slate-50'
+                    scope === s.value ? 'bg-brand-strong font-medium text-white' : 'bg-surface text-slate-700 hover:bg-slate-50'
                   }`}
                 >
                   {s.label}

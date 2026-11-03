@@ -63,7 +63,7 @@ function AffinityBars({ affinity }: { affinity: Affinity }) {
               aria-valuemin={0}
               aria-valuemax={100}
               aria-valuenow={c.score === null ? undefined : Math.round(width)}
-              className={`mt-1 h-2 overflow-hidden rounded-full ${c.score === null ? 'border border-dashed border-slate-300 bg-white' : 'bg-slate-100'}`}
+              className={`mt-1 h-2 overflow-hidden rounded-full ${c.score === null ? 'border border-dashed border-slate-300 bg-surface' : 'bg-slate-100'}`}
             >
               <div className="h-full rounded-full bg-dpm-blue" style={{ width: `${width}%` }} />
             </div>
@@ -177,7 +177,7 @@ export default function WorkspacePanel({ opportunityId, view, onChanged, onOpenR
               className:
                 ws.phase === 'listo_revision_final'
                   ? 'border-emerald-300 bg-emerald-50 text-emerald-800'
-                  : 'border-slate-300 bg-white text-slate-700',
+                  : 'border-slate-300 bg-surface text-slate-700',
             }}
           >
             {PHASE_LABEL[ws.phase] ?? ws.phase}

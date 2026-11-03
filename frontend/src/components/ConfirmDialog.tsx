@@ -41,7 +41,7 @@ export default function ConfirmDialog({
         e.preventDefault()
         if (!busy) onClose()
       }}
-      className="w-[min(32rem,calc(100vw-2rem))] rounded-xl border border-slate-200 p-0 text-slate-900 shadow-2xl backdrop:bg-slate-900/40"
+      className="w-[min(32rem,calc(100vw-2rem))] rounded-xl border border-slate-200 bg-surface p-0 text-slate-900 shadow-2xl backdrop:bg-ink/50"
     >
       <div className="p-6">
         <h2 id="confirm-dialog-title" className="text-lg font-semibold">

@@ -87,12 +87,12 @@ const DERIVED_TONE: Record<string, Omit<Tone, 'label'>> = {
   fuente_inaccesible: { icon: CloudOff, className: 'border-red-300 bg-red-50 text-red-800' },
   fecha_transcurrida: { icon: CalendarX, className: 'border-slate-300 bg-slate-100 text-slate-700' },
   historica: { icon: Archive, className: 'border-slate-300 bg-slate-100 text-slate-700' },
-  simulada: { icon: FlaskConical, className: 'border-amber-300 bg-white text-amber-900' },
+  simulada: { icon: FlaskConical, className: 'border-amber-300 bg-surface text-amber-900' },
 }
 
 /** Estado de verificación derivado (icono + texto); el motivo va en el tooltip. */
 export function DerivedBadge({ derived, wrap }: { derived: Derived; wrap?: boolean }) {
-  const tone = DERIVED_TONE[derived.code] ?? { icon: CircleQuestionMark, className: 'border-slate-300 bg-white text-slate-700' }
+  const tone = DERIVED_TONE[derived.code] ?? { icon: CircleQuestionMark, className: 'border-slate-300 bg-surface text-slate-700' }
   return (
     <Tooltip content={derived.reason} focusable>
       <Badge tone={tone} wrap={wrap}>
@@ -169,13 +169,13 @@ export const REQUIREMENT_STATUS_ORDER = [
 const SEMAPHORE_DOT: Record<string, string> = {
   verde: 'bg-emerald-500',
   ambar: 'bg-amber-400',
-  rojo: 'bg-red-600',
+  rojo: 'bg-danger-mark',
   neutro: 'bg-slate-400',
 }
 
 export function RequirementStatusBadge({ status }: { status: string }) {
   const s = REQUIREMENT_STATUS[status]
-  if (!s) return <Badge tone={{ icon: CircleDashed, className: 'border-slate-300 bg-white text-slate-700' }}>{humanize(status)}</Badge>
+  if (!s) return <Badge tone={{ icon: CircleDashed, className: 'border-slate-300 bg-surface text-slate-700' }}>{humanize(status)}</Badge>
   return (
     <span className="inline-flex items-center gap-1.5">
       <span aria-hidden="true" className={`h-2.5 w-2.5 shrink-0 rounded-full ${SEMAPHORE_DOT[s.group]}`} />
@@ -196,7 +196,7 @@ const SOURCE_STATUS: Record<string, Tone & { hint: string }> = {
   no_probada: {
     label: 'No probada',
     icon: CircleDashed,
-    className: 'border-slate-300 bg-white text-slate-700',
+    className: 'border-slate-300 bg-surface text-slate-700',
     hint: 'Aún no se ha ejecutado una consulta real contra esta fuente.',
   },
   bloqueada: {
@@ -215,7 +215,7 @@ const SOURCE_STATUS: Record<string, Tone & { hint: string }> = {
 
 export function SourceStatusBadge({ status }: { status: string }) {
   const s = SOURCE_STATUS[status]
-  if (!s) return <Badge tone={{ icon: CircleDashed, className: 'border-slate-300 bg-white text-slate-700' }}>{humanize(status)}</Badge>
+  if (!s) return <Badge tone={{ icon: CircleDashed, className: 'border-slate-300 bg-surface text-slate-700' }}>{humanize(status)}</Badge>
   return (
     <Tooltip content={s.hint} focusable>
       <Badge tone={s}>{s.label}</Badge>
@@ -233,7 +233,7 @@ const TASK_STATUS: Record<string, Tone> = {
 }
 
 export function TaskStatusBadge({ status }: { status: string }) {
-  const s = TASK_STATUS[status] ?? { label: humanize(status), icon: CircleDashed, className: 'border-slate-300 bg-white text-slate-700' }
+  const s = TASK_STATUS[status] ?? { label: humanize(status), icon: CircleDashed, className: 'border-slate-300 bg-surface text-slate-700' }
   return <Badge tone={s}>{s.label}</Badge>
 }
 
@@ -246,7 +246,7 @@ const REVIEW_STATUS: Record<string, Tone> = {
 }
 
 export function ReviewStatusBadge({ status }: { status: string }) {
-  const s = REVIEW_STATUS[status] ?? { label: humanize(status), icon: CircleDashed, className: 'border-slate-300 bg-white text-slate-700' }
+  const s = REVIEW_STATUS[status] ?? { label: humanize(status), icon: CircleDashed, className: 'border-slate-300 bg-surface text-slate-700' }
   return <Badge tone={s}>{s.label}</Badge>
 }
 

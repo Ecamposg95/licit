@@ -66,7 +66,7 @@ export default function Tooltip({ content, children, focusable, className }: Pro
         createPortal(
           <span
             aria-hidden="true"
-            className="pointer-events-none fixed z-50 w-max max-w-[300px] rounded-md bg-slate-900 px-2.5 py-1.5 text-xs leading-snug text-white shadow-lg"
+            className="pointer-events-none fixed z-50 w-max max-w-[300px] rounded-md bg-ink px-2.5 dark:ring-1 dark:ring-white/15 py-1.5 text-xs leading-snug text-white shadow-lg"
             style={{
               left: pos.x,
               top: pos.y,

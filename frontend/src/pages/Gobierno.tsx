@@ -48,7 +48,7 @@ function HeadHash({ hash, at }: { hash: string; at: string | null }) {
       <div className="mt-1 flex flex-wrap items-center gap-2">
         <code
           data-testid="last-hash"
-          className="select-all break-all rounded border border-emerald-200 bg-white px-2 py-1 font-mono text-xs text-slate-900"
+          className="select-all break-all rounded border border-emerald-200 bg-surface px-2 py-1 font-mono text-xs text-slate-900"
         >
           {hash}
         </code>
@@ -134,7 +134,7 @@ function Integrity() {
               Se detectó una alteración en la bitácora
             </p>
             <p className="mt-1 text-sm">
-              La cadena se rompe en el evento <code className="rounded bg-white px-1 tabular-nums">{result.first_broken_id}</code>, el número{' '}
+              La cadena se rompe en el evento <code className="rounded bg-surface px-1 tabular-nums">{result.first_broken_id}</code>, el número{' '}
               <strong className="tabular-nums">{result.checked}</strong> en orden cronológico. Los eventos posteriores no son confiables
               hasta investigarlo.
             </p>
