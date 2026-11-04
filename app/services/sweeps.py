@@ -8,7 +8,8 @@ los últimos `WINDOW_DAYS` días de publicación, en lotes de `search_runs.MAX_T
 - El barrido diario corre sin actor («Sistema»); el manual lleva a quien lo pidió.
 - Estado: `done` si todos los lotes quedan `done`, `failed` si todos fallan, `partial` en cualquier otra mezcla.
 - Un barrido diario `failed` se reintenta cada `RETRY_AFTER` hasta `MAX_DAILY_ATTEMPTS` intentos en el día. Uno que el
-  reinicio dejó a medias (su trabajo quedó `failed`) se marca `failed` con `interrupted` y entra al mismo reintento.
+  reinicio dejó a medias (su trabajo quedó `failed`, o sigue `running` desde antes de que arrancara el worker) se marca
+  `failed` con `interrupted` y entra al mismo reintento.
 - Nunca se rellena nada: un lote caído queda registrado en `errors` con su número de lote.
 """
 import copy
@@ -17,7 +18,7 @@ from collections import Counter
 from datetime import datetime, timedelta, timezone
 from typing import Callable
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
 from app.core import config
@@ -106,11 +107,33 @@ def today_state(db: Session, org_id: str, now: datetime) -> dict:
 # ── Programación ─────────────────────────────────────────────────────────────
 
 def _sync_interrupted(db: Session, org_id: str, now: datetime) -> None:
-    """Un barrido en cola o en curso cuyo trabajo ya quedó `failed` (reinicio del proceso) pasa a `failed`."""
-    stale = db.execute(select(Sweep).join(Job, Job.id == Sweep.job_id)
-                       .where(Sweep.organization_id == org_id, Sweep.status.in_(_OPEN),
-                              Job.status == JobStatus.FAILED.value)).scalars().all()
-    for sweep in stale:
+    """Un barrido en cola o en curso cuyo proceso se reinició pasa a `failed` con `interrupted`.
+
+    Se reconoce de dos formas: su trabajo ya quedó `failed` (`recover_stale_jobs`, que solo toca los de más de 10 min) o
+    sigue `running` pero empezó antes de que arrancara el worker de este proceso (una sola réplica: nadie más lo está
+    ejecutando). En el segundo caso el trabajo también se cierra. Los lotes del barrido que seguían abiertos se cierran
+    como fallidos para que no queden «en curso» para siempre.
+    """
+    orphaned = Job.status == JobStatus.FAILED.value
+    booted = jobs.worker_started_at()
+    if booted is not None:
+        orphaned = or_(orphaned, and_(Job.status == JobStatus.RUNNING.value, Job.started_at < booted))
+    stale = db.execute(select(Sweep, Job).join(Job, Job.id == Sweep.job_id)
+                       .where(Sweep.organization_id == org_id, Sweep.status.in_(_OPEN), orphaned)).all()
+    for sweep, job in stale:
+        if job.status == JobStatus.RUNNING.value:
+            job.status, job.error, job.finished_at = JobStatus.FAILED.value, jobs.STALE_ERROR, now
+        open_runs = db.scalars(select(SearchRun).where(
+            SearchRun.sweep_id == sweep.id,
+            SearchRun.status.in_((SearchRunStatus.QUEUED.value, SearchRunStatus.RUNNING.value))))
+        for run in open_runs:
+            run.status = SearchRunStatus.FAILED.value
+            run.finished_at = now
+            run.errors = list(run.errors or []) + [
+                {"source": SOURCE_KEY, "term": None, "code": "interrupted", "message": jobs.STALE_ERROR}]
+            audit.record(db, organization_id=org_id, actor_id=None, action="search.finish",
+                         resource_type="search_run", resource_id=run.id,
+                         after={"status": run.status, "errors": [e["code"] for e in run.errors]})
         before = sweep.status
         sweep.status = SweepStatus.FAILED.value
         sweep.errors = [{"batch": None, "code": "interrupted", "message": jobs.STALE_ERROR}]

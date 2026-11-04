@@ -37,9 +37,11 @@ def _dedupe(values: Sequence[str] | None) -> list[str]:
 
 
 def clean(payload) -> dict:
-    """Campos limpios (nombre recortado; listas sin vacíos ni repetidos). Sin condiciones → 422."""
+    """Campos limpios (nombre recortado; listas sin vacíos ni repetidos). Sin nombre o sin condiciones → 422."""
     data = payload if isinstance(payload, dict) else payload.model_dump()
     out = {"name": (data.get("name") or "").strip()}
+    if not out["name"]:
+        raise AppError(422, "validation_error", "Escribe un nombre para la búsqueda guardada")
     out["terms"] = search_runs.normalize_terms(data.get("terms"), default=False)
     for f in _LISTS[1:]:
         out[f] = _dedupe(data.get(f))

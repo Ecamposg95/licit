@@ -102,14 +102,14 @@ migración nueva (`alembic/versions`).
 - **Resultado.** `done` si todos los lotes terminaron bien, `failed` si todos fallaron y `partial` en cualquier otra
   mezcla (`errors` dice qué lote y qué término no se revisó). Un SIDOF caído **no** significa que no haya licitaciones.
 - **Reintentos.** Un barrido diario `failed` se reintenta solo cada hora, hasta 3 intentos en el día. Si un reinicio lo
-  dejó a medias, se marca `failed` con el código `interrupted` y entra al mismo reintento.
+  dejó a medias, se marca `failed` con el código `interrupted` y entra al mismo reintento: el worker anota la hora en
+  que arranca y, en su siguiente momento ocioso (el gancho del barrido), cierra como interrumpido todo barrido abierto cuyo
+  trabajo siga `running` desde antes de esa hora, junto con su trabajo y sus lotes en curso. No hace falta esperar los
+  10 min de `recover_stale_jobs`. Esto supone **una sola réplica**: con dos, una cerraría el barrido de la otra.
 - **Apagarlo.** `DAILY_SWEEP=0` en las variables del servicio `web` (y redeploy). Para cambiar la hora:
   `DAILY_SWEEP_HOUR=7`.
 - **Reintentar a mano.** Botón «Volver a barrer» del tablero (permiso `search.run`) o
   `POST /api/v1/sweeps` con una cabecera `Idempotency-Key`. Corre con el actor de quien lo pide y comparte el worker
   con las búsquedas manuales (una a la vez). El historial está en `GET /api/v1/sweeps?limit=10`.
-- **Limitación conocida.** Si el servicio se reinicia a menos de 10 minutos de haber empezado un barrido,
-  `recover_stale_jobs` (umbral de 10 min) no lo marca como fallido y ese intento no se reintenta ese día. Basta lanzar
-  «Volver a barrer». La corrida de búsqueda que iba en curso queda `running`.
 - **Primer día en producción.** El barrido real desde Railway aún no se ha observado: revisa el tablero «Hoy» y
   `GET /api/v1/sweeps?limit=10` después de las `DAILY_SWEEP_HOUR`.

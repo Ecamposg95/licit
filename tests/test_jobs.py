@@ -205,11 +205,14 @@ def test_start_worker_replaces_thread_stuck_after_stop_timeout(monkeypatch, _cle
     db.commit()
 
     first = jobs.start_worker(poll_seconds=0.02)
+    booted = jobs.worker_started_at()
     assert entered.wait(10)
     jobs.stop_worker()                       # el handler sigue bloqueado: la espera se agota
     assert first.is_alive()
 
     second = jobs.start_worker(poll_seconds=0.02)       # el hilo anterior sigue vivo y con la señal de paro
+    # Su trabajo `running` no está huérfano: la hora de arranque no se mueve.
+    assert jobs.worker_started_at() == booted
     _enqueue(db, "test.rapido")
     db.commit()
     try:
@@ -290,7 +293,9 @@ def test_start_worker_recovers_stale_jobs(_clean_worker):
     stale_id = stale.id
     db.close()
 
+    before = utcnow()
     jobs.start_worker(poll_seconds=0.02)
+    assert jobs.worker_started_at() >= before                  # hora de arranque para `sweeps._sync_interrupted`
     check = SessionLocal()
     try:
         assert check.get(Job, stale_id).status == "failed"

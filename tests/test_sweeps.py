@@ -297,6 +297,63 @@ def test_interrupted_synced_even_when_off(db, monkeypatch):
     assert daily(db) == []
 
 
+def _running_from(db, s: Sweep, started_at: datetime) -> SearchRun:
+    """Deja el barrido `s` en curso con su trabajo `running` desde `started_at` y un lote a medias."""
+    s.status, s.started_at = "running", started_at
+    job = db.get(Job, s.job_id)
+    job.status, job.started_at, job.attempts = "running", started_at, 1
+    run = SearchRun(organization_id=s.organization_id, created_by_id=s.created_by_id,
+                    query={"terms": ["placa"]}, status="running", counts={}, errors=[], job_id=job.id,
+                    sweep_id=s.id, started_at=started_at)
+    db.add(run)
+    db.commit()
+    return run
+
+
+def test_running_sweep_from_before_restart_is_interrupted_and_retried(db, on, monkeypatch):
+    # El proceso se reinició a las 6:30 (antes de los 10 min de `recover_stale_jobs`): el trabajo sigue `running`.
+    monkeypatch.setattr(jobs, "_started_at", mx(6, 30).astimezone(timezone.utc))
+    sweeps.schedule_due(db, mx(6, 0))
+    s = daily(db)[0]
+    run = _running_from(db, s, mx(6, 25).astimezone(timezone.utc))
+    sweep_id, job_id, run_id = s.id, s.job_id, run.id
+
+    sweeps.schedule_due(db, mx(6, 31))
+    db.expire_all()
+    s, job, run = db.get(Sweep, sweep_id), db.get(Job, job_id), db.get(SearchRun, run_id)
+    assert s.status == "failed" and s.finished_at is not None
+    assert s.errors == [{"batch": None, "code": "interrupted", "message": jobs.STALE_ERROR}]
+    assert job.status == "failed" and job.error == jobs.STALE_ERROR and job.finished_at is not None
+    assert run.status == "failed" and run.finished_at is not None
+    assert [e["code"] for e in run.errors] == ["interrupted"]
+    finish = db.scalars(select(AuditEvent).where(AuditEvent.action == "sweep.finish",
+                                                 AuditEvent.resource_id == sweep_id)).one()
+    assert finish.after["errors"] == ["interrupted"]
+    assert db.scalars(select(AuditEvent).where(AuditEvent.action == "search.finish",
+                                               AuditEvent.resource_id == run_id)).one()
+
+    assert sweeps.schedule_due(db, mx(7, 30)) == []                 # 59 min después del cierre
+    assert [c.attempt for c in sweeps.schedule_due(db, mx(7, 31))] == [2]
+
+
+def test_running_sweep_of_current_worker_is_left_alone(db, on, monkeypatch):
+    sweeps.schedule_due(db, mx(6, 0))
+    s = daily(db)[0]
+    _running_from(db, s, mx(6, 25).astimezone(timezone.utc))
+    sweep_id = s.id
+
+    monkeypatch.setattr(jobs, "_started_at", None)                  # sin worker en este proceso: no se adivina
+    sweeps.schedule_due(db, mx(6, 31))
+    db.expire_all()
+    assert db.get(Sweep, sweep_id).status == "running"
+
+    monkeypatch.setattr(jobs, "_started_at", mx(6, 20).astimezone(timezone.utc))     # lo tomó el worker actual
+    sweeps.schedule_due(db, mx(6, 31))
+    db.expire_all()
+    s = db.get(Sweep, sweep_id)
+    assert s.status == "running" and db.get(Job, s.job_id).status == "running"
+
+
 def test_tick_is_throttled(db, on, monkeypatch):
     calls = []
     monkeypatch.setattr(sweeps, "schedule_due", lambda db_, now: calls.append(now) or [])

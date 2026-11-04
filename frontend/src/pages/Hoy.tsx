@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import {
   CalendarClock,
@@ -324,7 +324,9 @@ function NewRow({
         {where && <p className="mt-0.5 text-[13px] text-slate-600">{where}</p>}
         <p className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-600">
           <span>{detectedText(item.created_at)}</span>
-          {item.published_at && <span>DOF: {formatInstantDate(item.published_at)}</span>}
+          {item.published_at && (
+            <span>Publicada en Compras MX (según el DOF): {formatInstantDate(item.published_at)}</span>
+          )}
         </p>
         {item.matched.length > 0 && (
           <ul className="mt-1.5 flex flex-wrap gap-1.5" aria-label="Búsquedas guardadas que coinciden">
@@ -404,7 +406,11 @@ function Section({ id, title, aside, description, children }: {
 function emptyNewText(data: HoyOut): { title: string; body?: string } {
   const last = data.sweep.last
   if (!last) return { title: 'Todavía no se ha barrido el DOF', body: 'Sin un barrido no hay nuevas que mostrar.' }
-  if (last.status === 'done') return { title: 'Sin nuevas en el DOF en los últimos 7 días' }
+  if (last.status === 'done')
+    // Si el barrido sí trajo nuevas y ya se clasificaron todas, el DOF no está vacío.
+    return (last.counts.new ?? 0) === 0
+      ? { title: 'Sin nuevas en el DOF en los últimos 7 días' }
+      : { title: 'No hay nuevas por clasificar', body: 'Ya clasificaste todas las nuevas del último barrido.' }
   if (last.status === 'queued' || last.status === 'running')
     return { title: 'No hay nuevas por clasificar', body: 'El barrido sigue en curso; las nuevas aparecerán aquí.' }
   // failed o partial: nunca «0 nuevas».
@@ -591,7 +597,17 @@ export default function Hoy() {
   const canRead = useCan('opportunity.read')
   const me = useAuth((s) => s.me)
   const [scope, setScope] = useState<HoyScope | undefined>(undefined)
-  const hoy = useApi(() => getHoy(scope), [scope], canRead)
+  // El sondeo no es una visita: pide el tablero sin recorrer la marca de «nueva desde tu visita».
+  const polling = useRef(false)
+  const hoy = useApi(
+    () => {
+      const touch = !polling.current
+      polling.current = false
+      return getHoy(scope, touch)
+    },
+    [scope],
+    canRead,
+  )
   const [triageTarget, setTriageTarget] = useState<{ detail: OpportunityDetail; action: TriageAction } | null>(null)
   const [opening, setOpening] = useState<string | null>(null)
   const [openError, setOpenError] = useState<ApiError | null>(null)
@@ -603,7 +619,10 @@ export default function Hoy() {
   // `hoy.error` también re-arma la espera: un sondeo fallido no detiene los siguientes.
   useEffect(() => {
     if (!sweeping) return
-    const t = window.setTimeout(reload, POLL_MS)
+    const t = window.setTimeout(() => {
+      polling.current = true
+      reload()
+    }, POLL_MS)
     return () => window.clearTimeout(t)
   }, [sweeping, reload, hoy.data, hoy.error])
 

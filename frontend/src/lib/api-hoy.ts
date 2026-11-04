@@ -82,8 +82,11 @@ export interface TriageBody {
 }
 
 /** Sin `scope` el backend elige: dirección ve el equipo; los demás roles, lo suyo. */
-export const getHoy = (scope?: HoyScope) =>
-  http.get<HoyOut>('/hoy', { params: scope ? { scope } : undefined }).then((r) => r.data)
+// `touch: false` en el sondeo: el backend no recorre la marca de visita.
+export const getHoy = (scope?: HoyScope, touch = true) =>
+  http
+    .get<HoyOut>('/hoy', { params: { ...(scope ? { scope } : {}), ...(touch ? {} : { touch: false }) } })
+    .then((r) => r.data)
 
 export const getHoyBadge = () => http.get<{ new: number }>('/hoy/badge').then((r) => r.data)
 

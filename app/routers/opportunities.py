@@ -12,7 +12,7 @@ from app.core.permissions import Perm, require_permission
 from app.core.tenant import get_owned
 from app.models import (
     AuditEvent, BidWorkspace, Document, DocumentVersion, EvidenceLink, Lot, MatchAssessment, Opportunity, Requirement,
-    RequirementStatus, Source, Task, User, Variant,
+    RequirementStatus, Source, Task, TriageStatus, User, Variant,
 )
 from app.schemas.v1 import (
     AuditOut, Derived, DocumentOut, LotOut, OpportunityDetail, OpportunityPatch, OpportunityRow, Page, SourceRef,
@@ -139,6 +139,10 @@ def patch_opportunity(opportunity_id: str, payload: OpportunityPatch, db: Sessio
     changes = payload.model_dump(exclude_unset=True, exclude={"expected_version"})
     if "owner_id" in changes and changes["owner_id"]:
         get_owned(db, User, changes["owner_id"], user, "Usuario")
+    elif "owner_id" in changes and opp.triage_status == TriageStatus.SIGUIENDO.value:
+        # «Seguir exige responsable»: para dejarla sin responsable primero hay que descartarla.
+        raise AppError(422, "owner_required",
+                       "Una oportunidad en seguimiento necesita responsable; asigna a otra persona o descártala.")
     before = audit.snapshot(opp, list(changes))
     for k, v in changes.items():
         setattr(opp, k, v)

@@ -131,9 +131,11 @@ si algo cambia, se corrige aquí antes de decirlo en una reunión.
   (`matches_term`, como SIDOF): un término parcial como «osteos» no encuentra nada. Hay que escribir «osteosintesis».
 - **Un solo worker.** El tick del barrido vive en el worker de trabajos de la única réplica (`JOBS_WORKER=1`). No se probó con más de una réplica. Si el servicio está apagado a la hora del barrido, se encola al volver a
   arrancar ese mismo día, a partir de la hora configurada; un día completo sin servicio no se repone.
-- **Reinicio durante un barrido.** `recover_stale_jobs` solo marca como fallido un trabajo con más de 10 minutos; si
-  el reinicio llega antes, ese intento no se reintenta ese día (queda `running`) y se puede lanzar «Volver a barrer». La
-  corrida (`SearchRun`) en curso de un barrido interrumpido también queda `running`.
+- **Reinicio durante un barrido.** Un barrido que el reinicio dejó en curso se cierra como `failed` / `interrupted`
+  (con su trabajo y sus lotes abiertos) en el primer momento ocioso del worker nuevo y entra al reintento por hora. Se
+  reconoce porque su trabajo sigue `running` desde antes de que arrancara el worker: vale solo con **una réplica**.
+  Los trabajos que no son barridos (búsquedas manuales, importaciones) siguen dependiendo de `recover_stale_jobs`
+  (más de 10 min) y la corrida de una búsqueda manual interrumpida puede quedar `running`.
 - **Quién clasifica.** Solo `analista_comercial` tiene `opportunity.write`: Dirección y el resto de roles ven el tablero
   pero no pueden Seguir ni Descartar. Es una decisión de permisos del demo, no se agregaron permisos nuevos.
 - **Sin validar en producción.** El barrido real desde la IP de Railway está **por observar el primer día**; lo probado

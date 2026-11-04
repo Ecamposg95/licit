@@ -156,3 +156,18 @@ def test_my_tasks_include_demo_but_kpi_counts_real_only(db):
 def test_hoy_requires_read(client):
     assert client.get("/api/v1/hoy").status_code == 401
     assert client.get("/api/v1/hoy/badge").status_code == 401
+
+
+def test_poll_with_touch_false_keeps_visit_mark(client, db):
+    u = user(db)
+    old = datetime.now(timezone.utc) - timedelta(hours=1)
+    u.hoy_seen_at, u.hoy_prev_seen_at = old, None
+    db.commit()
+    h = login(client, ANALYST)
+    assert client.get("/api/v1/hoy?touch=false", headers=h).status_code == 200
+    db.expire_all()
+    assert hoy._aware(user(db).hoy_seen_at) == old and user(db).hoy_prev_seen_at is None
+
+    assert client.get("/api/v1/hoy", headers=h).status_code == 200            # la carga normal sí la recorre
+    db.expire_all()
+    assert hoy._aware(user(db).hoy_seen_at) > old and hoy._aware(user(db).hoy_prev_seen_at) == old

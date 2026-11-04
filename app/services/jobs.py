@@ -32,6 +32,9 @@ _STOP_TIMEOUT_SECONDS = 10.0
 STALE_ERROR = "Interrumpido: el proceso se reinició antes de terminar"
 _stop = threading.Event()          # señal de paro del hilo vigente; cada hilo nuevo recibe la suya
 _thread: threading.Thread | None = None
+# Hora (UTC) en que arrancó el worker vigente de este proceso. Con una sola réplica, un trabajo que sigue `running` y
+# empezó antes de esta hora quedó huérfano por el reinicio (ver `sweeps._sync_interrupted`). None: sin worker.
+_started_at: datetime | None = None
 
 
 def register(kind: str, handler: Handler) -> None:
@@ -164,7 +167,7 @@ def _loop(poll_seconds: float, stop: threading.Event) -> None:
 
 
 def start_worker(poll_seconds: float = 1.0) -> threading.Thread:
-    global _thread, _stop
+    global _thread, _stop, _started_at
     if _thread is not None and _thread.is_alive():
         if not _stop.is_set():
             return _thread
@@ -173,7 +176,9 @@ def start_worker(poll_seconds: float = 1.0) -> threading.Thread:
         # en cuanto el handler vuelva y no compite con el hilo nuevo.
         _thread.join(timeout=_STOP_TIMEOUT_SECONDS)
     if _thread is None or not _thread.is_alive():
-        # Con un hilo anterior aún dentro de un handler, su trabajo `running` no está huérfano.
+        # Con un hilo anterior aún dentro de un handler, su trabajo `running` no está huérfano: la hora de arranque
+        # solo se fija cuando no queda ningún hilo vivo.
+        _started_at = utcnow()
         _recover_at_startup()
     _stop = threading.Event()
     _thread = threading.Thread(target=_loop, args=(poll_seconds, _stop), name="jobs-worker", daemon=True)
@@ -201,6 +206,10 @@ def stop_worker() -> None:
         _thread.join(timeout=_STOP_TIMEOUT_SECONDS)
         if not _thread.is_alive():
             _thread = None
+
+
+def worker_started_at() -> datetime | None:
+    return _started_at
 
 
 def worker_alive() -> bool:

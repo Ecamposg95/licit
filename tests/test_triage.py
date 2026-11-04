@@ -172,3 +172,21 @@ def test_audit_chain_still_valid(client, db):
     assert len(triage_events(db)) == 6
     ok, _, broken = audit.verify_chain(db, me.organization_id)
     assert ok and broken is None
+
+
+def test_patch_cannot_clear_owner_of_followed(client, db):
+    me = user(db)
+    o = real_opp(db, triage_status="siguiendo", owner_id=me.id)
+    h = login(client, ANALYST)
+    r = client.patch(f"/api/v1/opportunities/{o.id}", headers=h,
+                     json={"expected_version": o.version, "owner_id": None})
+    assert r.status_code == 422 and r.json()["code"] == "owner_required"
+    db.expire_all()
+    o = db.get(Opportunity, o.id)
+    assert o.owner_id == me.id and o.version == 1 and o.triage_status == "siguiendo"
+
+    # En una oportunidad nueva (o descartada) quitar el responsable sigue permitido.
+    n = real_opp(db, external_id="LA-99-TRI-002", owner_id=me.id)
+    r = client.patch(f"/api/v1/opportunities/{n.id}", headers=h,
+                     json={"expected_version": n.version, "owner_id": None})
+    assert r.status_code == 200 and r.json()["owner"] is None

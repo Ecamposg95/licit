@@ -120,3 +120,13 @@ def test_radar_filter_by_saved_search(client, db):
     assert r.status_code == 200
     assert [i["external_id"] for i in r.json()["items"]] == ["LA-99-SS-010"] and r.json()["total"] == 1
     assert client.get(f"/api/v1/opportunities?saved_search_id={sid}", headers=b).status_code == 404
+
+
+def test_blank_name_rejected(client):
+    a = login(client, "analista1@dipromedic.example")
+    r = client.post(URL, headers=a, json={"name": "   ", "terms": ["osteosintesis"]})
+    assert r.status_code == 422 and r.json()["code"] == "validation_error"
+    assert "nombre" in r.json()["message"].lower()
+    sid = client.post(URL, headers=a, json={"name": "Buena", "terms": ["osteosintesis"]}).json()["id"]
+    r = client.put(f"{URL}/{sid}", headers=a, json={"name": " \t ", "terms": ["osteosintesis"]})
+    assert r.status_code == 422 and r.json()["code"] == "validation_error"

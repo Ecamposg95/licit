@@ -15,11 +15,13 @@ router = APIRouter(tags=["hoy"])
 
 
 @router.get("/api/v1/hoy", response_model=HoyOut)
-def get_hoy(scope: Literal["mine", "team"] | None = Query(None), db: Session = Depends(get_db),
-            user: User = Depends(require_permission(Perm.OPPORTUNITY_READ))):
+def get_hoy(scope: Literal["mine", "team"] | None = Query(None),
+            touch: bool = Query(True, description="false en el polling: no recorre la marca de visita"),
+            db: Session = Depends(get_db), user: User = Depends(require_permission(Perm.OPPORTUNITY_READ))):
     scope = scope or ("team" if "direccion" in user.role_names else "mine")
     now = datetime.now(timezone.utc)
-    hoy.touch_visit(user, now)
+    if touch:
+        hoy.touch_visit(user, now)
     data = hoy.dashboard(db, user, now, scope)
     db.commit()    # solo las dos marcas de visita del usuario; sin auditoría
     return data
