@@ -108,3 +108,8 @@ migración nueva (`alembic/versions`).
 - **Reintentar a mano.** Botón «Volver a barrer» del tablero (permiso `search.run`) o
   `POST /api/v1/sweeps` con una cabecera `Idempotency-Key`. Corre con el actor de quien lo pide y comparte el worker
   con las búsquedas manuales (una a la vez). El historial está en `GET /api/v1/sweeps?limit=10`.
+- **Limitación conocida.** Si el servicio se reinicia a menos de 10 minutos de haber empezado un barrido,
+  `recover_stale_jobs` (umbral de 10 min) no lo marca como fallido y ese intento no se reintenta ese día. Basta lanzar
+  «Volver a barrer». La corrida de búsqueda que iba en curso queda `running`.
+- **Primer día en producción.** El barrido real desde Railway aún no se ha observado: revisa el tablero «Hoy» y
+  `GET /api/v1/sweeps?limit=10` después de las `DAILY_SWEEP_HOUR`.

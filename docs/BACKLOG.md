@@ -1,6 +1,6 @@
 # Backlog del demo (task pack §14)
 
-Estado al 2026-11-02 (integración 2 en producción desde el 2026-10-30; beta abierto con las cuentas demo).
+Estado al 2026-11-03 (integración 2 en producción desde el 2026-10-30; beta abierto con las cuentas demo).
 ✅ hecho · 🟡 parcial · ⬜ pendiente. Límites detallados en `docs/LIMITACIONES.md`; guion en `docs/GUION_DEMO.md`.
 
 | ID | Tarea | Estado | Notas |
@@ -21,6 +21,6 @@ Estado al 2026-11-02 (integración 2 en producción desde el 2026-10-30; beta ab
 | T14 | Recorrido completo integrado | 🟡 | Fase 0 y las dos oleadas integradas; recorrido del guion probado por API y en el navegador local. Falta el ensayo completo en producción (H4) |
 | T15 | QA funcional, permisos y fallos | ✅ | Suite en SQLite y Postgres con los casos negativos del §16 (`tests/test_negative.py`); limitaciones registradas |
 | T16 | Despliegue, respaldo y ensayo | 🟡 | Integración 2 en producción (2026-10-30). Respaldo y restauración ensayados en local con el procedimiento de `docs/OPERACION.md` (conteos idénticos, cadena de auditoría válida). Cuentas del beta operables con `scripts/cuentas.py`. Primer respaldo real de producción el 2026-11-02, restaurado en local y verificado (94 eventos con cadena válida). Falta el ensayo H4 |
-| T17 | Búsquedas guardadas y alertas | ⬜ | P1 |
+| T17 | Búsquedas guardadas y alertas | 🟡 | **Entrega 1 ✅ (tablero «Hoy»):** barrido diario automático en SIDOF (`DAILY_SWEEP`, 06:00 CDMX, reintento cada hora, máx. 3 intentos) y «Volver a barrer» a mano; búsquedas guardadas por persona (en «Mis búsquedas» del Radar); clasificación Seguir/Descartar auditada; «Hoy» como pantalla de inicio con indicadores, nuevas desde la última visita y insignia en el menú. Solo REAL cuenta como nuevo. El barrido real desde Railway queda por observar el primer día. **Entrega 2 pendiente:** resultado de la licitación (presentada, ganada, perdida), montos de fallo y embudo de conversión |
 | T18 | OCR y plantillas adicionales | ⬜ | P1 |
 | T19 | Portales adicionales y ERP | ⬜ | P2. Fuera del alcance: el demo es solo comercial (decisión del 2026-10-30); se quitaron la vista de TI y el diagrama de planta/ERP |

@@ -1,13 +1,13 @@
 # Informe de limitaciones
 
-Se actualiza en cada entrega. Corte: 2026-10-29 (integración 2 de la demo de reunión). Dice lo que es verdad hoy;
+Se actualiza en cada entrega. Corte: 2026-11-03 (integración 2 de la demo de reunión + T17 entrega 1). Dice lo que es verdad hoy;
 si algo cambia, se corrige aquí antes de decirlo en una reunión.
 
 ## Fuentes de licitaciones
 
 | Fuente | Estado hoy | Qué implica |
 |---|---|---|
-| **DOF vía SIDOF** · búsqueda por palabra `POST /busqueda/CargaNotasAvanzadas/` | Operativa desde el entorno de desarrollo (corrida real del 2026-10-29). Falta repetirla desde la IP de Railway (ensayo H4) | El endpoint **no está documentado**: lo usa el propio sitio y puede cambiar sin aviso. El **barrido diario de respaldo** con los servicios documentados (`/dof/sidof/notas/{fecha}`) **no está implementado** |
+| **DOF vía SIDOF** · búsqueda por palabra `POST /busqueda/CargaNotasAvanzadas/` | Operativa desde el entorno de desarrollo (corrida real del 2026-10-29). Falta repetirla desde la IP de Railway (ensayo H4) | El endpoint **no está documentado**: lo usa el propio sitio y puede cambiar sin aviso. El barrido diario (T17) usa esta misma búsqueda no documentada, no el **respaldo por fecha** con los servicios documentados (`/dof/sidof/notas/{fecha}`), que **no está implementado** |
 | DOF vía SIDOF · lectura de notas `/dof/sidof/notas/nota/{id}` | Operativa | Servicio documentado; cada nota se guarda como evidencia con su SHA-256 |
 | `www.dof.gob.mx` | No se usa | Su robots.txt prohíbe `/nota_detalle.php?`; su búsqueda redirige a SIDOF |
 | **Compras MX** | **Bloqueada para automatizar** | El listado responde 401 sin cabeceras cifradas, reCAPTCHA v3 y una prueba de trabajo (WASM). No se elude: la carga es **manual** (Radar → «Importar»), queda REAL «Por verificar» con su enlace |
@@ -117,6 +117,27 @@ si algo cambia, se corrige aquí antes de decirlo en una reunión.
   simultáneas; reintentar con la misma clave de idempotencia repite el trabajo fallido (la interfaz usa una clave nueva
   por clic).
 - En el historial, las fechas dentro del detalle de un evento se muestran en ISO (UTC), no en la zona de visualización.
+
+## Barrido diario y tablero «Hoy» (T17, entrega 1)
+
+- **Fuente.** Solo SIDOF, con la búsqueda no documentada de arriba. Si SIDOF cambia o no responde, el barrido sale `failed` o
+  `partial` y el tablero lo muestra con el error; nunca como «0 nuevas». Compras MX sigue manual (Radar → «Importar»).
+- **Alcance del barrido.** Tope de 30 términos por barrido (3 lotes de 10; los sobrantes se listan en `dropped_terms`) y
+  ventana de 7 días de publicación (hoy y los 6 anteriores, fecha de Ciudad de México). Una convocatoria publicada
+  antes de esa ventana no se descubre por esta vía.
+- **«Nueva» = detectada por Licit**, no publicada ese día: es la primera vez que Licit la ve. Solo cuentan los registros
+  REAL; HISTORICAL y SYNTHETIC no entran a indicadores ni a «nuevas».
+- **Términos de las búsquedas guardadas = palabras completas.** El cotejo es por palabra completa y sin acentos
+  (`matches_term`, como SIDOF): un término parcial como «osteos» no encuentra nada. Hay que escribir «osteosintesis».
+- **Un solo worker.** El tick del barrido vive en el worker de trabajos de la única réplica (`JOBS_WORKER=1`). No se probó con más de una réplica. Si el servicio está apagado a la hora del barrido, se encola al volver a
+  arrancar ese mismo día, a partir de la hora configurada; un día completo sin servicio no se repone.
+- **Reinicio durante un barrido.** `recover_stale_jobs` solo marca como fallido un trabajo con más de 10 minutos; si
+  el reinicio llega antes, ese intento no se reintenta ese día (queda `running`) y se puede lanzar «Volver a barrer». La
+  corrida (`SearchRun`) en curso de un barrido interrumpido también queda `running`.
+- **Quién clasifica.** Solo `analista_comercial` tiene `opportunity.write`: Dirección y el resto de roles ven el tablero
+  pero no pueden Seguir ni Descartar. Es una decisión de permisos del demo, no se agregaron permisos nuevos.
+- **Sin validar en producción.** El barrido real desde la IP de Railway está **por observar el primer día**; lo probado
+  es con SIDOF simulado en las pruebas.
 
 ## Fuera del alcance
 
