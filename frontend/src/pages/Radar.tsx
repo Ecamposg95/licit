@@ -1,19 +1,24 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { ExternalLink, FileUp, RotateCcw, Search, SearchX } from 'lucide-react'
+import { BookmarkPlus, ExternalLink, FileUp, RotateCcw, Search, SearchX, X } from 'lucide-react'
+import ConfirmDialog from '@/components/ConfirmDialog'
 import PageHeader, { Pagination } from '@/components/PageHeader'
 import DataKindChips, { usePersistentDataKinds } from '@/components/DataKindChips'
 import Tooltip, { UnavailableAction } from '@/components/Tooltip'
 import { DataKindBadge, DerivedBadge, SourceStatusBadge } from '@/components/badges'
 import { DateTimeText, SubmissionDate, TimezoneNote } from '@/components/dates'
 import { EmptyState, ErrorPanel, TableSkeleton } from '@/components/feedback'
-import { listOpportunities, listSources } from '@/lib/api'
+import { listOpportunities, listSources, toApiError, type ApiError } from '@/lib/api'
 import { listCatalogLines } from '@/lib/api-catalog'
+import { deleteSavedSearch, listSavedSearches, type SavedSearch } from '@/lib/api-saved-searches'
 import { MX_STATES, procedureTypeLabel } from '@/lib/labels'
 import { useApi } from '@/lib/useApi'
 import type { OpportunityRow, SourceOut } from '@/lib/types'
+import type { SavedSearchIn } from '@/lib/api-saved-searches'
 import { useCan } from '@/store/auth'
 import ImportDialog from './radar/ImportDialog'
+import SavedSearchDialog from './radar/SavedSearchDialog'
+import SavedSearchesMenu from './radar/SavedSearchesMenu'
 import SearchDialog from './radar/SearchDialog'
 
 const PAGE_SIZE = 25
@@ -157,6 +162,7 @@ export default function Radar() {
   const family = params.get('family') ?? ''
   const state = params.get('state') ?? ''
   const source = params.get('source') ?? ''
+  const ss = params.get('ss') ?? ''
   const from = params.get('from') ?? ''
   const to = params.get('to') ?? ''
   const page = Math.max(1, Number(params.get('page')) || 1)
@@ -188,13 +194,14 @@ export default function Radar() {
         family,
         state,
         source,
+        saved_search_id: ss,
         data_kind: kinds,
         period_from: from,
         period_to: to,
         page,
         page_size: PAGE_SIZE,
       }),
-    [q, family, state, source, kinds.join(','), from, to, page],
+    [q, family, state, source, ss, kinds.join(','), from, to, page],
     !noKinds,
   )
   const sources = useApi(listSources, [])
@@ -227,7 +234,41 @@ export default function Radar() {
     return Array.from(set).sort((a, b) => a.localeCompare(b, 'es'))
   }, [state])
 
-  const hasFilters = !!(q || family || state || source || from || to)
+  // Mis búsquedas: aplicar (`ss` en la URL → saved_search_id), crear, editar y borrar.
+  const saved = useApi(listSavedSearches, [])
+  const activeSaved = saved.data?.find((x) => x.id === ss) ?? null
+  const [dialog, setDialog] = useState<{ editing: SavedSearch | null; prefill?: Partial<SavedSearchIn> } | null>(null)
+  const [toDelete, setToDelete] = useState<SavedSearch | null>(null)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState<ApiError | null>(null)
+  const closeDelete = () => {
+    if (deleting) return
+    setToDelete(null)
+    setDeleteError(null)
+  }
+  const confirmDelete = async () => {
+    if (!toDelete) return
+    setDeleting(true)
+    setDeleteError(null)
+    try {
+      await deleteSavedSearch(toDelete.id)
+      if (toDelete.id === ss) setParam('ss', '')
+      setToDelete(null)
+      saved.reload()
+    } catch (e) {
+      setDeleteError(toApiError(e))
+    } finally {
+      setDeleting(false)
+    }
+  }
+  const canSaveCurrent = !!(q || state || family)
+  const saveCurrent = () =>
+    setDialog({
+      editing: null,
+      prefill: { terms: q ? [q] : [], states: state ? [state] : [], families: family ? [family] : [] },
+    })
+
+  const hasFilters = !!(q || family || state || source || ss || from || to)
   const clearFilters = () => {
     setText('')
     setParams(new URLSearchParams(), { replace: true })
@@ -357,12 +398,47 @@ export default function Radar() {
             />
           </div>
         </div>
-        {hasFilters && (
-          <button type="button" className="btn-ghost mt-3 text-xs" onClick={clearFilters}>
-            <RotateCcw aria-hidden="true" className="h-3.5 w-3.5" />
-            Limpiar filtros
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <SavedSearchesMenu
+            searches={saved.data ?? []}
+            activeId={ss}
+            loading={saved.loading && !saved.data}
+            onApply={(x) => setParam('ss', x.id)}
+            onEdit={(x) => setDialog({ editing: x })}
+            onDelete={setToDelete}
+            onNew={() => setDialog({ editing: null })}
+          />
+          <button
+            type="button"
+            className="btn-secondary"
+            disabled={!canSaveCurrent}
+            title={canSaveCurrent ? undefined : 'Escribe un texto o elige una familia o una entidad para guardarlo'}
+            onClick={saveCurrent}
+          >
+            <BookmarkPlus aria-hidden="true" className="h-4 w-4" />
+            Guardar como búsqueda
           </button>
-        )}
+          {ss && (
+            <span className="inline-flex items-center gap-1 rounded-full border border-petrol-200 bg-petrol-50 py-0.5 pl-2.5 pr-1 text-xs font-medium text-petrol-800">
+              Búsqueda: {activeSaved?.name ?? (saved.loading ? '…' : 'no disponible')}
+              <button
+                type="button"
+                className="rounded-full p-0.5 hover:bg-petrol-100"
+                aria-label="Quitar la búsqueda guardada aplicada"
+                onClick={() => setParam('ss', '')}
+              >
+                <X aria-hidden="true" className="h-3.5 w-3.5" />
+              </button>
+            </span>
+          )}
+          {saved.error && <span className="text-xs text-red-800">No se pudieron cargar tus búsquedas: {saved.error.message}</span>}
+          {hasFilters && (
+            <button type="button" className="btn-ghost text-xs" onClick={clearFilters}>
+              <RotateCcw aria-hidden="true" className="h-3.5 w-3.5" />
+              Limpiar filtros
+            </button>
+          )}
+        </div>
       </section>
 
       <section aria-label="Resultados" className="card overflow-hidden">
@@ -443,6 +519,37 @@ export default function Radar() {
           }}
         />
       )}
+      <SavedSearchDialog
+        open={dialog !== null}
+        editing={dialog?.editing ?? null}
+        prefill={dialog?.prefill}
+        familyOptions={familyOptions}
+        onClose={() => setDialog(null)}
+        onSaved={(x) => {
+          setDialog(null)
+          saved.reload()
+          // Una búsqueda recién creada se aplica; al editar solo se refresca la lista.
+          if (!dialog?.editing) setParam('ss', x.id)
+        }}
+      />
+      <ConfirmDialog
+        open={toDelete !== null}
+        title="Borrar búsqueda guardada"
+        confirmLabel="Borrar"
+        danger
+        busy={deleting}
+        onConfirm={() => void confirmDelete()}
+        onClose={closeDelete}
+      >
+        <p>
+          Se borrará «{toDelete?.name}». Las oportunidades no se tocan, pero dejan de contar como tu territorio en Hoy.
+        </p>
+        {deleteError && (
+          <p role="alert" className="text-red-800">
+            {deleteError.message}
+          </p>
+        )}
+      </ConfirmDialog>
       {canImport && <ImportDialog open={importOpen} onClose={() => setImportOpen(false)} onImported={showReal} />}
     </div>
   )

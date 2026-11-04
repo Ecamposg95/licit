@@ -208,6 +208,8 @@ export interface OpportunityQuery {
   family?: string
   state?: string
   source?: string
+  /** Solo lo que coincide con esta búsqueda guardada propia. */
+  saved_search_id?: string
   data_kind?: DataKind[]
   period_from?: IsoDate
   period_to?: IsoDate
