@@ -530,6 +530,8 @@ export default function Radar() {
           saved.reload()
           // Una búsqueda recién creada se aplica; al editar solo se refresca la lista.
           if (!dialog?.editing) setParam('ss', x.id)
+          // Si se editó la búsqueda aplicada, la URL no cambia: la lista se vuelve a consultar con los criterios nuevos.
+          else if (dialog.editing.id === ss) result.reload()
         }}
       />
       <ConfirmDialog
