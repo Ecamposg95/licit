@@ -127,6 +127,8 @@ const RESOURCE_TYPE: Record<string, string> = {
   search_run: 'Búsqueda en vivo',
   bid_workspace: 'Expediente',
   generated_artifact: 'Borrador del expediente',
+  saved_search: 'Búsqueda guardada',
+  sweep: 'Barrido en SIDOF',
 }
 export const resourceTypeLabel = (c: string | null | undefined) => lookup(RESOURCE_TYPE, c)
 
@@ -162,6 +164,12 @@ const AUDIT_ACTION: Record<string, string> = {
   'artifact.download': 'Borrador del expediente descargado',
   'audit.verify': 'Integridad de la bitácora verificada',
   'opportunity.bases_changed': 'Cambio en las bases (nota oficial actualizada)',
+  'opportunity.triage': 'Oportunidad clasificada',
+  'saved_search.create': 'Búsqueda guardada creada',
+  'saved_search.update': 'Búsqueda guardada actualizada',
+  'saved_search.delete': 'Búsqueda guardada eliminada',
+  'sweep.start': 'Barrido en SIDOF iniciado',
+  'sweep.finish': 'Barrido en SIDOF terminado',
 }
 export const auditActionLabel = (c: string) => AUDIT_ACTION[c] ?? c
 
@@ -273,8 +281,30 @@ const FIELD: Record<string, string> = {
   // Cambio de bases (nota oficial actualizada)
   cause: 'Causa',
   task_id: 'Actividad creada',
+  // Clasificación, búsquedas guardadas y barrido (T17)
+  triage_status: 'Clasificación',
+  triage_reason: 'Motivo del descarte',
+  via: 'Vía',
+  name: 'Nombre',
+  states: 'Entidades',
+  buyers: 'Instituciones',
+  day: 'Día',
+  attempt: 'Intento',
+  trigger: 'Origen',
+  batch: 'Lote',
+  batches: 'Lotes',
+  sweep_id: 'Barrido',
+  dropped_terms: 'Términos fuera del tope',
 }
 export const fieldLabel = (c: string) => FIELD[c] ?? c
+
+/** Clasificación de una oportunidad REAL (T17). HISTORICAL y SYNTHETIC no se clasifican. */
+export const TRIAGE_STATUS_LABEL: Record<string, string> = {
+  nueva: 'Nueva · sin clasificar',
+  siguiendo: 'Siguiendo',
+  descartada: 'Descartada',
+}
+export const triageStatusLabel = (c: string | null | undefined) => lookup(TRIAGE_STATUS_LABEL, c)
 
 /** Resultado del motor determinista de correspondencia (`services/matching.py`). */
 export const MATCH_RESULT_LABEL: Record<string, string> = {

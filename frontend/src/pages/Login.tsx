@@ -28,7 +28,7 @@ export default function Login() {
   const [loading, setLoading] = useState(false)
 
   const from = (location.state as { from?: string } | null)?.from
-  const target = from && from !== '/login' ? from : '/radar'
+  const target = from && from !== '/login' ? from : '/hoy'
 
   if (token && !loading) return <Navigate to={target} replace />
 

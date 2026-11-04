@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import Layout from '@/components/Layout'
 import SessionGate from '@/components/SessionGate'
 import Login from '@/pages/Login'
+import Hoy from '@/pages/Hoy'
 import Radar from '@/pages/Radar'
 import OpportunityDetail from '@/pages/OpportunityDetail'
 import Catalog from '@/pages/Catalog'
@@ -25,7 +26,8 @@ export default function App() {
           </SessionGate>
         }
       >
-        <Route index element={<Navigate to="/radar" replace />} />
+        <Route index element={<Navigate to="/hoy" replace />} />
+        <Route path="/hoy" element={<Hoy />} />
         <Route path="/radar" element={<Radar />} />
         <Route path="/oportunidades/:id" element={<OpportunityDetail />} />
         <Route path="/catalogo" element={<Catalog />} />
@@ -38,7 +40,7 @@ export default function App() {
         <Route path="/panel" element={<Panel />} />
         <Route path="/gobierno" element={<Gobierno />} />
       </Route>
-      <Route path="*" element={<Navigate to="/radar" replace />} />
+      <Route path="*" element={<Navigate to="/hoy" replace />} />
     </Routes>
   )
 }

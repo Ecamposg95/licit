@@ -1,11 +1,14 @@
+import { useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
-import { ArrowLeft, ExternalLink, FlaskConical, UserCheck } from 'lucide-react'
+import { ArrowLeft, Ban, CircleDot, Eye, ExternalLink, FlaskConical, UserCheck } from 'lucide-react'
 import Tabs, { type TabDef } from '@/components/Tabs'
+import TriageDialog, { type TriageAction } from '@/components/TriageDialog'
 import { Badge, DataKindBadge, DerivedBadge, SourceStatusBadge } from '@/components/badges'
 import { DateTimeText } from '@/components/dates'
 import { EmptyState, ErrorPanel, Forbidden, LoadingBlock } from '@/components/feedback'
 import { getOpportunity } from '@/lib/api'
 import { formatDateLong } from '@/lib/format'
+import { triageStatusLabel } from '@/lib/labels'
 import { useApi } from '@/lib/useApi'
 import type { OpportunityDetail as Detail } from '@/lib/types'
 import { useAuth, useCan } from '@/store/auth'
@@ -20,7 +23,50 @@ import { getWorkspace } from '@/lib/api-workspace'
 const TAB_IDS = ['resumen', 'partidas', 'requisitos', 'documentos', 'actividades', 'expediente', 'historial'] as const
 type TabId = (typeof TAB_IDS)[number]
 
-function Header({ o }: { o: Detail }) {
+const TRIAGE_TONE: Record<string, { icon: typeof Eye; className: string }> = {
+  nueva: { icon: CircleDot, className: 'border-amber-300 bg-amber-50 text-amber-900' },
+  siguiendo: { icon: Eye, className: 'border-emerald-300 bg-emerald-50 text-emerald-800' },
+  descartada: { icon: Ban, className: 'border-slate-300 bg-slate-100 text-slate-700' },
+}
+
+/** Clasificación (T17): chip, quién y cuándo, motivo del descarte y acciones para quien tiene `opportunity.write`. */
+function TriageBar({ o, onTriage }: { o: Detail; onTriage: (a: TriageAction) => void }) {
+  const canWrite = useCan('opportunity.write')
+  const status = o.triage_status
+  if (o.data_kind !== 'REAL' || !status) return null
+  const tone = TRIAGE_TONE[status] ?? TRIAGE_TONE.descartada
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm text-slate-600">
+      <Badge tone={tone}>{triageStatusLabel(status)}</Badge>
+      {o.triage_by && o.triage_at && (
+        <span>
+          Clasificó {o.triage_by.full_name} · <DateTimeText value={o.triage_at} />
+        </span>
+      )}
+      {status === 'descartada' && o.triage_reason && (
+        <span className="min-w-0 basis-full text-slate-700">
+          Motivo: <span className="whitespace-pre-line">{o.triage_reason}</span>
+        </span>
+      )}
+      {canWrite && (
+        <span className="flex gap-2">
+          {status !== 'siguiendo' && (
+            <button type="button" className="btn-secondary py-1.5" onClick={() => onTriage('seguir')}>
+              Seguir
+            </button>
+          )}
+          {status !== 'descartada' && (
+            <button type="button" className="btn-secondary py-1.5" onClick={() => onTriage('descartar')}>
+              Descartar
+            </button>
+          )}
+        </span>
+      )}
+    </div>
+  )
+}
+
+function Header({ o, onTriage }: { o: Detail; onTriage: (a: TriageAction) => void }) {
   const baseDate = useAuth((s) => s.meta?.demo_base_date)
   return (
     <header className="mb-5">
@@ -52,6 +98,7 @@ function Header({ o }: { o: Detail }) {
           </Badge>
         )}
       </div>
+      <TriageBar o={o} onTriage={onTriage} />
       <p className="mt-3 break-all text-sm font-medium text-slate-600 tabular-nums">{o.external_id}</p>
       <h1 className="mt-0.5 text-2xl font-semibold tracking-tight text-slate-900">{o.title}</h1>
       <p className="mt-1 text-[15px] text-slate-700">
@@ -97,6 +144,7 @@ export default function OpportunityDetail() {
   const canReqs = useCan('requirement.read')
   const canDocs = useCan('document.read')
   const canTasks = useCan('task.read')
+  const [triageAction, setTriageAction] = useState<TriageAction | null>(null)
 
   const raw = params.get('tab')
   const tab: TabId = (TAB_IDS as readonly string[]).includes(raw ?? '') ? (raw as TabId) : 'resumen'
@@ -134,7 +182,15 @@ export default function OpportunityDetail() {
 
   return (
     <div>
-      <Header o={o} />
+      <Header o={o} onTriage={setTriageAction} />
+      <TriageDialog
+        opportunity={triageAction ? o : null}
+        action={triageAction ?? 'seguir'}
+        onDone={(updated) => {
+          setTriageAction(null)
+          if (updated) detail.setData(updated)
+        }}
+      />
       {o.data_kind !== 'HISTORICAL' && (o.lots.length > 0 || reqTotal > 0) && (
         <div className="mb-5">
           <WorkspacePanel

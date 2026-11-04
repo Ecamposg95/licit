@@ -139,7 +139,8 @@ export interface OpportunityRow {
   /** Se calcula en E3 (motor de correspondencia); hoy siempre null. */
   affinity: Record<string, unknown> | null
   open_requirements: number
-  triage_status: 'nueva' | 'siguiendo' | 'descartada' | null
+  /** Solo REAL se clasifica; HISTORICAL y SYNTHETIC llegan con null. */
+  triage_status: TriageStatus | null
   published_at: IsoDateTime | null
   created_at: IsoDateTime
 }
@@ -187,7 +188,13 @@ export interface OpportunityDetail extends OpportunityRow {
   version: number
   lots: LotOut[]
   requirement_counts: Record<string, number>
+  /** Clasificación (T17): motivo del descarte, quién clasificó y cuándo. */
+  triage_reason: string | null
+  triage_by: UserRef | null
+  triage_at: IsoDateTime | null
 }
+
+export type TriageStatus = 'nueva' | 'siguiendo' | 'descartada'
 
 export interface OpportunityPatch {
   expected_version: number

@@ -1,6 +1,7 @@
-import type { ComponentType } from 'react'
+import { useEffect, useState, type ComponentType } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import {
+  CalendarCheck,
   FolderOpen,
   LayoutDashboard,
   ListChecks,
@@ -18,6 +19,7 @@ import Tooltip from '@/components/Tooltip'
 import { DataKindBadge } from '@/components/badges'
 import Footer from '@/components/brand/Footer'
 import Logo from '@/components/brand/Logo'
+import { getHoyBadge } from '@/lib/api-hoy'
 import { formatDate, getDisplayTimeZone } from '@/lib/format'
 import type { Permission } from '@/lib/types'
 import { useAuth } from '@/store/auth'
@@ -32,7 +34,10 @@ interface NavItem {
   permission?: Permission | Permission[]
 }
 
+const HOY_PATH = '/hoy'
+
 const NAV: NavItem[] = [
+  { to: HOY_PATH, label: 'Hoy', icon: CalendarCheck, permission: 'opportunity.read' },
   { to: '/panel', label: 'Panel', icon: LayoutDashboard, permission: 'opportunity.read' },
   { to: '/radar', label: 'Radar', icon: Radar, alsoActive: ['/oportunidades'] },
   { to: '/catalogo', label: 'Catálogo', icon: Package, permission: 'catalog.read' },
@@ -57,7 +62,7 @@ function TopBar() {
 
   return (
     <header className="surface-dark sticky top-0 z-30 flex h-14 items-center gap-2 bg-dpm-navy px-3 text-white sm:gap-4 sm:px-5 dark:border-b dark:border-white/10">
-      <Link to="/radar" className="flex shrink-0 items-center gap-3 rounded-md py-1">
+      <Link to={HOY_PATH} className="flex shrink-0 items-center gap-3 rounded-md py-1">
         <Logo variant="white" className="h-9" />
         <span aria-hidden="true" className="hidden h-6 w-px bg-white/25 sm:block" />
         <span className="hidden whitespace-nowrap text-[15px] font-semibold tracking-tight sm:inline">Licitaciones</span>
@@ -120,10 +125,38 @@ function TopBar() {
   )
 }
 
+/**
+ * Nuevas desde la última visita a «Hoy». Se pide al montar y en cada cambio de ruta; al abrir «Hoy» se pone en 0
+ * (esa visita recorre la marca en el backend). Un fallo deja el contador oculto: no se inventa un número.
+ */
+function useHoyBadge(pathname: string, enabled: boolean): number {
+  const [count, setCount] = useState(0)
+  useEffect(() => {
+    if (!enabled) return
+    if (pathname === HOY_PATH) {
+      setCount(0)
+      return
+    }
+    let active = true
+    getHoyBadge()
+      .then((b) => {
+        if (active) setCount(b.new)
+      })
+      .catch(() => {
+        if (active) setCount(0)
+      })
+    return () => {
+      active = false
+    }
+  }, [pathname, enabled])
+  return count
+}
+
 function Sidebar() {
   const permissions = useAuth((s) => s.me?.permissions ?? [])
   const { pathname } = useLocation()
   const items = NAV.filter((n) => allowed(n, permissions))
+  const badge = useHoyBadge(pathname, permissions.includes('opportunity.read'))
 
   return (
     <nav
@@ -148,15 +181,25 @@ function Sidebar() {
                   }`
                 }
               >
-                {({ isActive }) => (
-                  <>
-                    <Icon
-                      aria-hidden="true"
-                      className={`h-[18px] w-[18px] shrink-0 ${isActive || forcedActive ? 'text-dpm-blue' : ''}`}
-                    />
-                    <span className="sr-only lg:not-sr-only">{item.label}</span>
-                  </>
-                )}
+                {({ isActive }) => {
+                  const count = item.to === HOY_PATH ? badge : 0
+                  return (
+                    <>
+                      <Icon
+                        aria-hidden="true"
+                        className={`h-[18px] w-[18px] shrink-0 ${isActive || forcedActive ? 'text-dpm-blue' : ''}`}
+                      />
+                      <span className="sr-only lg:not-sr-only">{item.label}</span>
+                      {count > 0 && (
+                        // Píldora sólida: azul de marca fijo con texto blanco (ADR-004). En la barra angosta va sobre el icono.
+                        <span className="absolute right-1 top-1 min-w-[1.25rem] rounded-full bg-brand px-1.5 text-center text-[11px] font-semibold leading-5 text-white tabular-nums lg:static lg:ml-auto">
+                          <span aria-hidden="true">{count > 99 ? '99+' : count}</span>
+                          <span className="sr-only">{count === 1 ? ', 1 nueva' : `, ${count} nuevas`}</span>
+                        </span>
+                      )}
+                    </>
+                  )
+                }}
               </NavLink>
             </li>
           )
