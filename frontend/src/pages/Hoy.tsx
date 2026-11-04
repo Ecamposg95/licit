@@ -600,11 +600,12 @@ export default function Hoy() {
   const status = hoy.data?.sweep.last?.status
   const sweeping = status === 'queued' || status === 'running'
   const { reload } = hoy
+  // `hoy.error` también re-arma la espera: un sondeo fallido no detiene los siguientes.
   useEffect(() => {
     if (!sweeping) return
     const t = window.setTimeout(reload, POLL_MS)
     return () => window.clearTimeout(t)
-  }, [sweeping, reload, hoy.data])
+  }, [sweeping, reload, hoy.data, hoy.error])
 
   const firstName = useMemo(() => (me?.full_name ?? '').split(/\s+/)[0], [me?.full_name])
 
@@ -649,6 +650,15 @@ export default function Hoy() {
       </header>
 
       {hoy.error && !data && <ErrorPanel error={hoy.error} onRetry={hoy.reload} />}
+      {hoy.error && data && (
+        <div className="mb-4">
+          <ErrorPanel
+            error={hoy.error}
+            onRetry={hoy.reload}
+            title="No se pudo actualizar el tablero: las cifras y listas pueden estar desactualizadas"
+          />
+        </div>
+      )}
       {!data && !hoy.error && <LoadingBlock label="Cargando el tablero…" />}
 
       {data && (

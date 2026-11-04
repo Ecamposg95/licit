@@ -37,7 +37,7 @@ export default function TriageDialog({ opportunity, action, onDone }: Props) {
     const d = ref.current
     if (!d) return
     if (open && !d.open) {
-      setOwnerId(opportunity?.owner?.id ?? me?.id ?? '')
+      setOwnerId(me?.id ?? '')
       setReason('')
       setError(null)
       d.showModal()
